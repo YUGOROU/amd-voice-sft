@@ -16,7 +16,7 @@ os.environ["HF_HUB_DISABLE_XET"] = "1"
 #     USE_LORA   = False
 BASE_MODEL  = "TODO"
 OUTPUT_REPO = "YUGOROU/lumi-lora"
-DATA_REPO   = "YUGOROU/amd-voice-sft-dataset"
+DATA_REPO   = "YUGOROU/lumi-data"
 HF_TOKEN    = os.getenv("HF_TOKEN", "")
 
 USE_LORA     = True   # False = full fine-tuning (8B only)
