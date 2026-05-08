@@ -14,6 +14,7 @@ Usage:
     --port       8001
 """
 import argparse
+import json
 import os
 import time
 import uuid
@@ -23,7 +24,6 @@ os.environ["HSA_OVERRIDE_GFX_VERSION"] = "9.4.2"
 import torch
 import uvicorn
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 from peft import PeftModel
 from pydantic import BaseModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -110,6 +110,70 @@ def chat_completions(req: ChatRequest):
 
 
 # ---------------------------------------------------------------------------
+# Manual LoRA merge (handles Gemma4ClippableLinear and similar wrappers)
+# ---------------------------------------------------------------------------
+
+def _manual_lora_merge(base, adapter_repo: str, token: str = "") -> None:
+    """Merge LoRA weights directly into model parameters using safetensors.
+
+    Works around PEFT's module-type whitelist (e.g. Gemma4ClippableLinear) by
+    locating weights via named_parameters() and applying the LoRA delta in-place.
+    """
+    from safetensors.torch import load_file as st_load
+    from huggingface_hub import snapshot_download
+
+    local_dir = snapshot_download(adapter_repo, token=token or None)
+
+    with open(os.path.join(local_dir, "adapter_config.json")) as f:
+        cfg = json.load(f)
+
+    r     = int(cfg["r"])
+    alpha = float(cfg.get("lora_alpha", r))
+    scale = alpha / r
+
+    # Load all safetensors shards in the adapter repo
+    state: dict = {}
+    for fname in sorted(os.listdir(local_dir)):
+        if fname.endswith(".safetensors"):
+            state.update(st_load(os.path.join(local_dir, fname), device="cpu"))
+
+    # Flat parameter map for O(1) lookup
+    param_dict = dict(base.named_parameters())
+
+    merged = 0
+    for a_key in [k for k in state if k.endswith("lora_A.weight")]:
+        b_key = a_key.replace("lora_A.weight", "lora_B.weight")
+        if b_key not in state:
+            continue
+
+        # Strip PEFT key prefix: "base_model.model." or "base_model."
+        raw = a_key
+        for pfx in ("base_model.model.", "base_model."):
+            if raw.startswith(pfx):
+                raw = raw[len(pfx):]
+                break
+        param_name = raw.replace(".lora_A.weight", "")
+
+        # Try direct weight, then inner .linear weight (Gemma4ClippableLinear)
+        W = None
+        for suffix in (".weight", ".linear.weight"):
+            candidate = param_name + suffix
+            if candidate in param_dict:
+                W = param_dict[candidate]
+                break
+
+        if W is None:
+            continue
+
+        lora_A = state[a_key].to(W.device, dtype=W.dtype)
+        lora_B = state[b_key].to(W.device, dtype=W.dtype)
+        W.data.add_((lora_B @ lora_A) * scale)
+        merged += 1
+
+    print(f"  Manually merged {merged} LoRA layers (alpha/r = {scale:.3f})")
+
+
+# ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
 
@@ -133,14 +197,13 @@ def load_model(base_model: str, adapter: str | None):
     if adapter:
         print(f"Loading LoRA adapter: {adapter}")
         try:
-            # Standard PEFT path
+            # Standard PEFT path (works for most models)
             model = PeftModel.from_pretrained(base, adapter, token=HF_TOKEN)
             model = model.merge_and_unload()
         except (ValueError, KeyError):
-            # Fallback: transformers built-in adapter loader (handles Gemma4 etc.)
-            print("PEFT load failed, trying transformers load_adapter()")
-            base.load_adapter(adapter, adapter_name="default")
-            base.merge_adapter("default")
+            # Fallback: manual safetensors merge (handles Gemma4ClippableLinear etc.)
+            print("PEFT load failed, trying manual LoRA merge ...")
+            _manual_lora_merge(base, adapter, HF_TOKEN)
             model = base
     else:
         model = base
