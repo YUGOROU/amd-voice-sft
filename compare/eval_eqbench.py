@@ -56,10 +56,13 @@ def run_eqbench(model_name: str, vllm_url: str, crof_api_key: str,
         "TEST_API_URL": vllm_url.rstrip("/") + "/v1/chat/completions",
     })
 
+    # api_model_id must match the ID reported by the server's /v1/models endpoint
+    # (serve.py uses adapter.split("/")[-1] as the model name)
+    api_model_id = model_name
     cmd = [
         sys.executable,
         str(EQBENCH3_DIR / "eqbench3.py"),
-        "--test-model",    f"openai/{model_name}",
+        "--test-model",    f"openai/{api_model_id}",
         "--judge-model",   f"openai/{JUDGE_MODEL}",
         "--model-name",    model_name,
         "--iterations",    str(iterations),
