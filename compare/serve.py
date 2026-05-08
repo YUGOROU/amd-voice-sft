@@ -16,6 +16,7 @@ Usage:
 import argparse
 import json
 import os
+import threading
 import time
 import uuid
 
@@ -34,6 +35,7 @@ app = FastAPI()
 model = None
 tokenizer = None
 model_name = ""
+_gen_lock = threading.Lock()  # serialize GPU inference
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +81,7 @@ def chat_completions(req: ChatRequest):
     )
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
-    with torch.no_grad():
+    with _gen_lock, torch.no_grad():
         output_ids = model.generate(
             **inputs,
             max_new_tokens=req.max_tokens,
