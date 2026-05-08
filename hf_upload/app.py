@@ -242,6 +242,7 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
             chatbot1 = gr.Chatbot(
                 height=420,
                 label="Conversation",
+                type="messages",
                 avatar_images=(None, AVATAR_IMAGES.get("smile")),
             )
             with gr.Row():
@@ -274,6 +275,7 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
             chatbot2 = gr.Chatbot(
                 height=360,
                 label="Conversation",
+                type="messages",
             )
             audio_in  = gr.Audio(
                 sources=["microphone"],
