@@ -94,7 +94,7 @@ def chat_completions(req: ChatRequest):
                 max_new_tokens=min(req.max_tokens, 2048),
                 temperature=req.temperature if req.temperature > 0 else 1.0,
                 do_sample=req.temperature > 0,
-                pad_token_id=tokenizer.pad_token_id,
+                pad_token_id=getattr(getattr(tokenizer, "tokenizer", tokenizer), "pad_token_id", None),
             )
 
         new_ids = output_ids[0][inputs.input_ids.shape[1]:]
@@ -202,14 +202,21 @@ def load_model(base_model: str, adapter: str | None):
         token=HF_TOKEN,
     )
 
-    # Use AutoProcessor for Gemma4 (supports multimodal chat template)
+    # Gemma4 needs AutoProcessor for its multimodal chat template;
+    # other models use the tokenizer that Unsloth already loaded.
     print(f"Loading tokenizer/processor: {base_model}")
-    try:
-        tokenizer = AutoProcessor.from_pretrained(base_model, token=HF_TOKEN, padding_side="left")
-    except Exception:
-        tokenizer = tok  # fall back to Unsloth's tokenizer
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    if "gemma" in base_model.lower():
+        try:
+            tokenizer = AutoProcessor.from_pretrained(base_model, token=HF_TOKEN, padding_side="left")
+        except Exception:
+            tokenizer = tok
+    else:
+        tokenizer = tok
+
+    # pad_token may live on the processor's inner tokenizer
+    _inner = getattr(tokenizer, "tokenizer", tokenizer)
+    if _inner.pad_token is None:
+        _inner.pad_token = _inner.eos_token
 
     if adapter:
         print(f"Loading LoRA adapter: {adapter}")
