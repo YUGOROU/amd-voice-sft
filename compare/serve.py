@@ -1,6 +1,6 @@
 """
 Minimal OpenAI-compatible chat server for EQ-Bench evaluation.
-Loads a base model + LoRA adapter using transformers + peft (ROCm-friendly).
+Uses Unsloth for ROCm-compatible model loading on AMD MI300X.
 
 Usage:
   python compare/serve.py \
@@ -20,22 +20,20 @@ import threading
 import time
 import uuid
 
+# Must be set before any ROCm/torch import
 os.environ["HSA_OVERRIDE_GFX_VERSION"] = "9.4.2"
+os.environ["HF_HUB_DISABLE_XET"] = "1"
+
+# Unsloth must be imported first — it initializes ROCm device mapping
+from unsloth import FastLanguageModel
 
 import torch
 import uvicorn
-
-# ROCm (HIP) does not expose cudart(), which newer transformers uses in
-# caching_allocator_warmup. Patch it out so device_map still works.
-try:
-    torch.cuda.cudart()
-except Exception:
-    import transformers.modeling_utils as _mu
-    _mu.caching_allocator_warmup = lambda *a, **kw: None
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from peft import PeftModel
 from pydantic import BaseModel
-from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+from transformers import AutoProcessor, AutoTokenizer
 
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 
@@ -43,7 +41,7 @@ app = FastAPI()
 model = None
 tokenizer = None
 model_name = ""
-_gen_lock = threading.Lock()  # serialize GPU inference
+_gen_lock = threading.Lock()  # serialize GPU inference (one request at a time)
 
 
 # ---------------------------------------------------------------------------
@@ -146,13 +144,11 @@ def _manual_lora_merge(base, adapter_repo: str, token: str = "") -> None:
     alpha = float(cfg.get("lora_alpha", r))
     scale = alpha / r
 
-    # Load all safetensors shards in the adapter repo
     state: dict = {}
     for fname in sorted(os.listdir(local_dir)):
         if fname.endswith(".safetensors"):
             state.update(st_load(os.path.join(local_dir, fname), device="cpu"))
 
-    # Flat parameter map for O(1) lookup
     param_dict = dict(base.named_parameters())
 
     merged = 0
@@ -161,7 +157,6 @@ def _manual_lora_merge(base, adapter_repo: str, token: str = "") -> None:
         if b_key not in state:
             continue
 
-        # Strip PEFT key prefix: "base_model.model." or "base_model."
         raw = a_key
         for pfx in ("base_model.model.", "base_model."):
             if raw.startswith(pfx):
@@ -169,7 +164,6 @@ def _manual_lora_merge(base, adapter_repo: str, token: str = "") -> None:
                 break
         param_name = raw.replace(".lora_A.weight", "")
 
-        # Try direct weight, then inner .linear weight (Gemma4ClippableLinear)
         W = None
         for suffix in (".weight", ".linear.weight"):
             candidate = param_name + suffix
@@ -196,38 +190,39 @@ def load_model(base_model: str, adapter: str | None):
     global model, tokenizer, model_name
     model_name = adapter.split("/")[-1] if adapter else base_model.split("/")[-1]
 
-    print(f"Loading tokenizer: {base_model}")
+    # Qwen3.5 GatedDeltaNet requires bfloat16; others use float16
+    dtype = torch.bfloat16 if "qwen3" in base_model.lower() else torch.float16
+
+    print(f"Loading model: {base_model}  dtype={dtype}")
+    base, tok = FastLanguageModel.from_pretrained(
+        model_name=base_model,
+        max_seq_length=4096,
+        dtype=dtype,
+        load_in_4bit=False,
+        token=HF_TOKEN,
+    )
+
+    # Use AutoProcessor for Gemma4 (supports multimodal chat template)
+    print(f"Loading tokenizer/processor: {base_model}")
     try:
         tokenizer = AutoProcessor.from_pretrained(base_model, token=HF_TOKEN, padding_side="left")
     except Exception:
-        tokenizer = AutoTokenizer.from_pretrained(base_model, token=HF_TOKEN)
+        tokenizer = tok  # fall back to Unsloth's tokenizer
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-
-    print(f"Loading model: {base_model}")
-    print(f"CUDA available: {torch.cuda.is_available()}, device count: {torch.cuda.device_count()}")
-    base = AutoModelForCausalLM.from_pretrained(
-        base_model,
-        torch_dtype=torch.bfloat16,
-        device_map={"": "cuda:0"},
-        token=HF_TOKEN,
-    )
 
     if adapter:
         print(f"Loading LoRA adapter: {adapter}")
         try:
-            # Standard PEFT path (works for most models)
-            model = PeftModel.from_pretrained(base, adapter, token=HF_TOKEN)
-            model = model.merge_and_unload()
+            base = PeftModel.from_pretrained(base, adapter, token=HF_TOKEN)
+            base = base.merge_and_unload()
         except (ValueError, KeyError):
-            # Fallback: manual safetensors merge (handles Gemma4ClippableLinear etc.)
             print("PEFT load failed, trying manual LoRA merge ...")
             _manual_lora_merge(base, adapter, HF_TOKEN)
-            model = base
-    else:
-        model = base
 
-    model.eval()
+    FastLanguageModel.for_inference(base)
+    base.eval()
+    model = base
     print(f"Ready on {next(model.parameters()).device}")
 
 
