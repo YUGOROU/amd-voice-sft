@@ -24,6 +24,14 @@ os.environ["HSA_OVERRIDE_GFX_VERSION"] = "9.4.2"
 
 import torch
 import uvicorn
+
+# ROCm (HIP) does not expose cudart(), which newer transformers uses in
+# caching_allocator_warmup. Patch it out so device_map still works.
+try:
+    torch.cuda.cudart()
+except Exception:
+    import transformers.modeling_utils as _mu
+    _mu.caching_allocator_warmup = lambda *a, **kw: None
 from fastapi import FastAPI
 from peft import PeftModel
 from pydantic import BaseModel
