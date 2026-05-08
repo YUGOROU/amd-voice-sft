@@ -43,7 +43,7 @@ print(f"Loading {BASE_MODEL} ...")
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=BASE_MODEL,
     max_seq_length=MAX_SEQ_LEN,
-    dtype=torch.float16,    # fp16 — bf16 has incomplete ROCm support
+    dtype=torch.bfloat16,   # Qwen3.5 GatedDeltaNet requires bfloat16
     load_in_4bit=False,     # avoid bitsandbytes NaN bug on AMD
     token=HF_TOKEN,
 )
@@ -92,8 +92,8 @@ trainer = SFTTrainer(
         warmup_ratio=WARMUP_RATIO,
         num_train_epochs=EPOCHS,
         learning_rate=LR,
-        fp16=True,
-        bf16=False,
+        fp16=False,
+        bf16=True,
         logging_steps=10,
         save_strategy="epoch",
         output_dir=OUTPUT_DIR,
