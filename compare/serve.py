@@ -188,32 +188,56 @@ def _manual_lora_merge(base, adapter_repo: str, token: str = "") -> None:
 
 def load_model(base_model: str, adapter: str | None):
     global model, tokenizer, model_name
+    from huggingface_hub import login
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
     model_name = adapter.split("/")[-1] if adapter else base_model.split("/")[-1]
 
-    # Qwen3.5 GatedDeltaNet requires bfloat16; others use float16
+    if HF_TOKEN:
+        login(token=HF_TOKEN)
+
     dtype = torch.bfloat16 if "qwen3" in base_model.lower() else torch.float16
-
     print(f"Loading model: {base_model}  dtype={dtype}")
-    base, tok = FastLanguageModel.from_pretrained(
-        model_name=base_model,
-        max_seq_length=4096,
-        dtype=dtype,
-        load_in_4bit=False,
-        token=HF_TOKEN,
-    )
 
-    # Gemma4 needs AutoProcessor for its multimodal chat template;
-    # other models use the tokenizer that Unsloth already loaded.
-    print(f"Loading tokenizer/processor: {base_model}")
+    # Try Unsloth first (optimal for ROCm); fall back to plain transformers
+    use_unsloth = False
+    tok = None
+    try:
+        base, tok = FastLanguageModel.from_pretrained(
+            model_name=base_model,
+            max_seq_length=4096,
+            dtype=dtype,
+            load_in_4bit=False,
+            token=HF_TOKEN,
+        )
+        use_unsloth = True
+    except Exception as e:
+        print(f"Unsloth load failed ({e}), falling back to transformers ...")
+        # Patch caching_allocator_warmup (uses CUDA-specific cudart, absent on some ROCm configs)
+        try:
+            torch.cuda.cudart()
+        except Exception:
+            import transformers.modeling_utils as _mu
+            _mu.caching_allocator_warmup = lambda *a, **kw: None
+        base = AutoModelForCausalLM.from_pretrained(
+            base_model,
+            torch_dtype=dtype,
+            device_map={"": "cuda:0"},
+            token=HF_TOKEN,
+        )
+
+    # Tokenizer / processor
+    print(f"Loading tokenizer: {base_model}")
     if "gemma" in base_model.lower():
         try:
             tokenizer = AutoProcessor.from_pretrained(base_model, token=HF_TOKEN, padding_side="left")
         except Exception:
-            tokenizer = tok
-    else:
+            tokenizer = tok or AutoTokenizer.from_pretrained(base_model, token=HF_TOKEN)
+    elif tok is not None:
         tokenizer = tok
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(base_model, token=HF_TOKEN)
 
-    # pad_token may live on the processor's inner tokenizer
     _inner = getattr(tokenizer, "tokenizer", tokenizer)
     if _inner.pad_token is None:
         _inner.pad_token = _inner.eos_token
@@ -227,7 +251,8 @@ def load_model(base_model: str, adapter: str | None):
             print("PEFT load failed, trying manual LoRA merge ...")
             _manual_lora_merge(base, adapter, HF_TOKEN)
 
-    FastLanguageModel.for_inference(base)
+    if use_unsloth:
+        FastLanguageModel.for_inference(base)
     base.eval()
     model = base
     print(f"Ready on {next(model.parameters()).device}")
