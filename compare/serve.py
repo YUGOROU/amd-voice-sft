@@ -213,12 +213,22 @@ def load_model(base_model: str, adapter: str | None):
         use_unsloth = True
     except Exception as e:
         print(f"Unsloth load failed ({e}), falling back to transformers ...")
+        # Remove Unsloth Zoo's Gemma4 __getattr__ patch — it intercepts all
+        # attribute access and breaks transformers config validation.
+        try:
+            from transformers.models.gemma4.configuration_gemma4 import Gemma4TextConfig
+            if hasattr(Gemma4TextConfig, "__getattr__"):
+                del Gemma4TextConfig.__getattr__
+        except Exception:
+            pass
+
         # Patch caching_allocator_warmup (uses CUDA-specific cudart, absent on some ROCm configs)
         try:
             torch.cuda.cudart()
         except Exception:
             import transformers.modeling_utils as _mu
             _mu.caching_allocator_warmup = lambda *a, **kw: None
+
         base = AutoModelForCausalLM.from_pretrained(
             base_model,
             torch_dtype=dtype,
