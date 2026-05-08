@@ -31,7 +31,7 @@ from pipeline.tts import synthesize
 # ---------------------------------------------------------------------------
 
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
-MODEL_NAME    = os.getenv("MODEL_NAME", "YUGOROU/lumi-gemma-4-31b")
+MODEL_NAME    = os.getenv("MODEL_NAME", "Debdeep30/lumi-qwen3-4b-grpo")
 PATIENT_ID    = os.getenv("PATIENT_ID", "demo_user_001")
 PATIENT_NAME  = os.getenv("PATIENT_NAME", "Margaret")
 STT_URL       = os.getenv("STT_URL", "")
@@ -221,7 +221,7 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
 
     # ── Header ──────────────────────────────────────────────────────────────
     with gr.Row(elem_id="lumi-header"):
-        gr.Markdown("# Lumi — AI Voice Companion\n*Powered by AMD MI300X · Fine-tuned Gemma-4-31B*")
+        gr.Markdown("# Lumi — AI Voice Companion\n*Powered by AMD MI300X · Fine-tuned Qwen3-4B (SFT + GRPO)*")
 
     # ── Avatar ──────────────────────────────────────────────────────────────
     avatar_img = gr.Image(
@@ -343,13 +343,15 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
 Lumi is a fine-tuned AI voice companion designed for elderly patients with dementia and Alzheimer's disease.
 
 **What makes Lumi different:**
-- **Domain fine-tuned** — Gemma-4-31B fine-tuned on 8,500+ dementia-care conversations via EQ-Matrix pipeline
+- **Domain fine-tuned** — Qwen3-4B fine-tuned on 8,540 dementia-care conversations via SFT + GRPO (two-phase RL)
 - **Persistent memory** — remembers personal details across sessions using ChromaDB
 - **Scam protection** — detects and deflects elder fraud attempts without alarming the patient
 - **Voice-native** — Whisper STT → Lumi → TTS, <1.5s time-to-first-audio
 - **AMD MI300X** — fine-tuned and served on AMD hardware via ROCm + vLLM
 
 **Patient:** {PATIENT_NAME} | **Model:** {MODEL_NAME}
+
+**EQ-Bench score: 91.22/100** (base model: 0.00) · **Latency: 21ms median TTFA** on AMD MI300X
 
 Built for the AMD Developer Hackathon 2026 · Fine-Tuning Track
 """)
