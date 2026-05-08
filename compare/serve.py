@@ -221,7 +221,7 @@ def load_model(base_model: str, adapter: str | None):
         from unsloth import FastLanguageModel
         base, _tok = FastLanguageModel.from_pretrained(
             model_name=base_model,
-            max_seq_length=4096,
+            max_seq_length=8192,
             dtype=dtype,
             load_in_4bit=False,
             token=HF_TOKEN or None,
