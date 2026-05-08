@@ -1,6 +1,9 @@
 """
 Minimal OpenAI-compatible chat server for EQ-Bench evaluation.
-Uses Unsloth for ROCm-compatible model loading on AMD MI300X.
+
+- Non-Gemma models (Qwen etc.): loaded via Unsloth for ROCm GPU support
+- Gemma4: loaded via plain transformers (Unsloth patches Gemma4TextConfig
+  in a way that breaks config validation, so we never import it for Gemma4)
 
 Usage:
   python compare/serve.py \
@@ -24,8 +27,9 @@ import uuid
 os.environ["HSA_OVERRIDE_GFX_VERSION"] = "9.4.2"
 os.environ["HF_HUB_DISABLE_XET"] = "1"
 
-# Unsloth must be imported first — it initializes ROCm device mapping
-from unsloth import FastLanguageModel
+# NOTE: Do NOT import unsloth at module level.
+# Unsloth patches Gemma4TextConfig.__getattr__ which breaks transformers
+# config validation. Import inside load_model() only for non-Gemma models.
 
 import torch
 import uvicorn
@@ -33,7 +37,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from peft import PeftModel
 from pydantic import BaseModel
-from transformers import AutoProcessor, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 
@@ -127,11 +131,7 @@ def chat_completions(req: ChatRequest):
 # ---------------------------------------------------------------------------
 
 def _manual_lora_merge(base, adapter_repo: str, token: str = "") -> None:
-    """Merge LoRA weights directly into model parameters using safetensors.
-
-    Works around PEFT's module-type whitelist (e.g. Gemma4ClippableLinear) by
-    locating weights via named_parameters() and applying the LoRA delta in-place.
-    """
+    """Merge LoRA weights directly into model parameters using safetensors."""
     from safetensors.torch import load_file as st_load
     from huggingface_hub import snapshot_download
 
@@ -166,9 +166,8 @@ def _manual_lora_merge(base, adapter_repo: str, token: str = "") -> None:
 
         W = None
         for suffix in (".weight", ".linear.weight"):
-            candidate = param_name + suffix
-            if candidate in param_dict:
-                W = param_dict[candidate]
+            if (param_name + suffix) in param_dict:
+                W = param_dict[param_name + suffix]
                 break
 
         if W is None:
@@ -189,40 +188,18 @@ def _manual_lora_merge(base, adapter_repo: str, token: str = "") -> None:
 def load_model(base_model: str, adapter: str | None):
     global model, tokenizer, model_name
     from huggingface_hub import login
-    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     model_name = adapter.split("/")[-1] if adapter else base_model.split("/")[-1]
-
     if HF_TOKEN:
         login(token=HF_TOKEN)
 
+    is_gemma = "gemma" in base_model.lower()
     dtype = torch.bfloat16 if "qwen3" in base_model.lower() else torch.float16
     print(f"Loading model: {base_model}  dtype={dtype}")
 
-    # Try Unsloth first (optimal for ROCm); fall back to plain transformers
-    use_unsloth = False
-    tok = None
-    try:
-        base, tok = FastLanguageModel.from_pretrained(
-            model_name=base_model,
-            max_seq_length=4096,
-            dtype=dtype,
-            load_in_4bit=False,
-            token=HF_TOKEN,
-        )
-        use_unsloth = True
-    except Exception as e:
-        print(f"Unsloth load failed ({e}), falling back to transformers ...")
-        # Remove Unsloth Zoo's Gemma4 __getattr__ patch — it intercepts all
-        # attribute access and breaks transformers config validation.
-        try:
-            from transformers.models.gemma4.configuration_gemma4 import Gemma4TextConfig
-            if hasattr(Gemma4TextConfig, "__getattr__"):
-                del Gemma4TextConfig.__getattr__
-        except Exception:
-            pass
-
-        # Patch caching_allocator_warmup (uses CUDA-specific cudart, absent on some ROCm configs)
+    if is_gemma:
+        # Pure transformers path — never import Unsloth for Gemma4.
+        # Patch caching_allocator_warmup if ROCm doesn't expose cudart.
         try:
             torch.cuda.cudart()
         except Exception:
@@ -235,19 +212,22 @@ def load_model(base_model: str, adapter: str | None):
             device_map={"": "cuda:0"},
             token=HF_TOKEN,
         )
-
-    # Tokenizer / processor
-    print(f"Loading tokenizer: {base_model}")
-    if "gemma" in base_model.lower():
         try:
-            tokenizer = AutoProcessor.from_pretrained(base_model, token=HF_TOKEN, padding_side="left")
+            tok = AutoProcessor.from_pretrained(base_model, token=HF_TOKEN, padding_side="left")
         except Exception:
-            tokenizer = tok or AutoTokenizer.from_pretrained(base_model, token=HF_TOKEN)
-    elif tok is not None:
-        tokenizer = tok
+            tok = AutoTokenizer.from_pretrained(base_model, token=HF_TOKEN)
     else:
-        tokenizer = AutoTokenizer.from_pretrained(base_model, token=HF_TOKEN)
+        # Unsloth path for ROCm-compatible loading of non-Gemma models.
+        from unsloth import FastLanguageModel
+        base, tok = FastLanguageModel.from_pretrained(
+            model_name=base_model,
+            max_seq_length=4096,
+            dtype=dtype,
+            load_in_4bit=False,
+            token=HF_TOKEN,
+        )
 
+    tokenizer = tok
     _inner = getattr(tokenizer, "tokenizer", tokenizer)
     if _inner.pad_token is None:
         _inner.pad_token = _inner.eos_token
@@ -261,8 +241,10 @@ def load_model(base_model: str, adapter: str | None):
             print("PEFT load failed, trying manual LoRA merge ...")
             _manual_lora_merge(base, adapter, HF_TOKEN)
 
-    if use_unsloth:
+    if not is_gemma:
+        from unsloth import FastLanguageModel
         FastLanguageModel.for_inference(base)
+
     base.eval()
     model = base
     print(f"Ready on {next(model.parameters()).device}")
