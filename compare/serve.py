@@ -132,8 +132,16 @@ def load_model(base_model: str, adapter: str | None):
 
     if adapter:
         print(f"Loading LoRA adapter: {adapter}")
-        model = PeftModel.from_pretrained(base, adapter, token=HF_TOKEN)
-        model = model.merge_and_unload()
+        try:
+            # Standard PEFT path
+            model = PeftModel.from_pretrained(base, adapter, token=HF_TOKEN)
+            model = model.merge_and_unload()
+        except (ValueError, KeyError):
+            # Fallback: transformers built-in adapter loader (handles Gemma4 etc.)
+            print("PEFT load failed, trying transformers load_adapter()")
+            base.load_adapter(adapter, adapter_name="default", token=HF_TOKEN)
+            base.merge_adapter("default")
+            model = base
     else:
         model = base
 
