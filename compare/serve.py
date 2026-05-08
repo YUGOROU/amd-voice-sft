@@ -197,10 +197,11 @@ def load_model(base_model: str, adapter: str | None):
         tokenizer.pad_token = tokenizer.eos_token
 
     print(f"Loading model: {base_model}")
+    print(f"CUDA available: {torch.cuda.is_available()}, device count: {torch.cuda.device_count()}")
     base = AutoModelForCausalLM.from_pretrained(
         base_model,
         torch_dtype=torch.bfloat16,
-        device_map="auto",
+        device_map={"": "cuda:0"},
         token=HF_TOKEN,
     )
 
