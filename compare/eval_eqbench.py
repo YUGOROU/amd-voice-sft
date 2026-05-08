@@ -27,7 +27,7 @@ from pathlib import Path
 
 EQBENCH3_DIR  = Path(__file__).parent / "eqbench3_repo"
 JUDGE_MODEL   = "deepseek-v4-flash"
-JUDGE_API_URL = "https://crof.ai/v1"
+JUDGE_API_URL = "https://crof.ai/v1/chat/completions"
 
 
 def clone_eqbench3():
