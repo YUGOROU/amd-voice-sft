@@ -65,8 +65,9 @@ def run_eqbench(model_name: str, vllm_url: str, crof_api_key: str,
         "--iterations",    str(iterations),
         "--runs-file",     str(runs_file),
         "--elo-results-file", str(elo_file),
-        "--ignore-canonical",   # use only local results (no leaderboard fetch)
-        "--no-elo",             # rubric scoring only — ELO needs multiple models
+        "--threads",       "1",         # serialize requests to local server
+        "--ignore-canonical",
+        "--no-elo",
     ]
 
     print(f"\nRunning EQ-Bench 3 for {model_name} ...")

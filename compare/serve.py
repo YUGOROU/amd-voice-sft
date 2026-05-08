@@ -74,24 +74,29 @@ def list_models():
 
 @app.post("/v1/chat/completions")
 def chat_completions(req: ChatRequest):
-    messages = [{"role": m.role, "content": m.content} for m in req.messages]
+    try:
+        messages = [{"role": m.role, "content": m.content} for m in req.messages]
 
-    prompt = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-
-    with _gen_lock, torch.no_grad():
-        output_ids = model.generate(
-            **inputs,
-            max_new_tokens=req.max_tokens,
-            temperature=req.temperature if req.temperature > 0 else 1.0,
-            do_sample=req.temperature > 0,
-            pad_token_id=tokenizer.pad_token_id,
+        prompt = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
         )
+        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
-    new_ids = output_ids[0][inputs.input_ids.shape[1]:]
-    text = tokenizer.decode(new_ids, skip_special_tokens=True)
+        with _gen_lock, torch.no_grad():
+            output_ids = model.generate(
+                **inputs,
+                max_new_tokens=min(req.max_tokens, 2048),
+                temperature=req.temperature if req.temperature > 0 else 1.0,
+                do_sample=req.temperature > 0,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+
+        new_ids = output_ids[0][inputs.input_ids.shape[1]:]
+        text = tokenizer.decode(new_ids, skip_special_tokens=True)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": {"message": str(e), "type": "server_error"}})
 
     return {
         "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
