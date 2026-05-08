@@ -90,7 +90,7 @@ def chat_completions(req: ChatRequest):
         prompt = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+        inputs = tokenizer(text=prompt, return_tensors="pt").to(model.device)
 
         with _gen_lock, torch.no_grad():
             output_ids = model.generate(
@@ -219,13 +219,18 @@ def load_model(base_model: str, adapter: str | None):
     else:
         # Unsloth path for ROCm-compatible loading of non-Gemma models.
         from unsloth import FastLanguageModel
-        base, tok = FastLanguageModel.from_pretrained(
+        base, _tok = FastLanguageModel.from_pretrained(
             model_name=base_model,
             max_seq_length=4096,
             dtype=dtype,
             load_in_4bit=False,
             token=HF_TOKEN or None,
         )
+        # Unsloth may return a VLProcessor; use AutoTokenizer for text-only inference
+        try:
+            tok = AutoTokenizer.from_pretrained(base_model, token=HF_TOKEN or None)
+        except Exception:
+            tok = _tok
 
     tokenizer = tok
     _inner = getattr(tokenizer, "tokenizer", tokenizer)
