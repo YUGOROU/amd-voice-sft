@@ -1,47 +1,53 @@
 """
 Structured output parser for Lumi.
 
-Every model response follows the format trained by the crof pipeline:
-    [avatar_tag] Short opening line.
+Qwen3 outputs in its native thinking-first format:
     <think>
     Internal reasoning — NEVER sent to TTS or shown to user.
     </think>
+    [avatar_tag] Short opening line.
     Full warm companion response continues here.
+
+TTS latency trick: stream until </think> appears, then fire TTS immediately
+on the opening line that follows.
 
 parse_structured_output() returns a dict with:
   - avatar_tag    : one of the 5 states (defaults to "smile" if missing)
-  - opening_line  : fires TTS immediately (latency-hiding trick)
-  - full_response : complete response text appended to TTS queue
+  - opening_line  : fires TTS after </think> is seen (latency-hiding trick)
+  - full_response : complete response text (think block stripped)
 """
 
 import re
 
 VALID_TAGS = {"smile", "nod", "concerned", "gentle", "laugh"}
-_TAG_RE    = re.compile(r"^\[(\w+)\]")
+_TAG_RE    = re.compile(r"\[(\w+)\]")           # anywhere in text
+_TAG_START = re.compile(r"^\[(\w+)\]")          # at start of text
 _THINK_RE  = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 def parse_structured_output(text: str) -> dict:
     text = text.strip()
 
-    # --- avatar tag ----------------------------------------------------------
-    tag_match = _TAG_RE.match(text)
-    if tag_match and tag_match.group(1) in VALID_TAGS:
-        avatar_tag = tag_match.group(1)
+    # Strip think block first — works for both tag-first and think-first formats
+    clean = _THINK_RE.sub("", text).strip()
+
+    # --- avatar tag: prefer at start of clean text, fall back to anywhere ----
+    tag_match = _TAG_START.match(clean) or _TAG_RE.search(clean)
+    if tag_match and tag_match.group(1).lower() in VALID_TAGS:
+        avatar_tag = tag_match.group(1).lower()
     else:
         avatar_tag = "smile"
 
-    # --- opening line (everything before <think>, minus the tag) ------------
-    before_think = text.split("<think>")[0]
-    opening_line = before_think.replace(f"[{avatar_tag}]", "").strip()
-
-    # --- strip think block entirely -----------------------------------------
-    clean = _THINK_RE.sub("", text)
-    full_response = clean.replace(f"[{avatar_tag}]", "").strip()
+    # --- opening line: first line of the clean text after removing the tag ---
+    tag_bracket = f"[{avatar_tag}]"
+    body = clean.replace(tag_bracket, "").replace(tag_bracket.upper(), "").strip()
+    lines = [l.strip() for l in body.split("\n") if l.strip()]
+    opening_line = lines[0] if lines else body[:80]
+    full_response = body
 
     return {
         "avatar_tag": avatar_tag,
-        "opening_line": opening_line,   # fire TTS on this IMMEDIATELY
+        "opening_line": opening_line,   # fire TTS after </think> token
         "full_response": full_response, # append to TTS queue
     }
 

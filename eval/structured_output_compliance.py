@@ -1,11 +1,16 @@
 """
 Checks what % of model outputs conform to the structured output format.
 
-Target: > 95%
+Qwen3 native format (what we target):
+    <think>...</think>
+    [avatar_tag] Short opening line.
+    Full warm response.
+
+Target: > 95% fully_compliant
 
 Usage:
   python eval/structured_output_compliance.py \
-    --model YUGOROU/lumi-qwen3-4b \
+    --model Debdeep30/lumi-qwen3-4b \
     --n 100 \
     --output eval/results/compliance.json
 """
@@ -13,12 +18,31 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pipeline.parser import VALID_TAGS, _TAG_RE, _THINK_RE
+_TAG_RE   = re.compile(r"\[(smile|nod|concerned|gentle|laugh)\]", re.IGNORECASE)
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+VALID_TAGS = {"smile", "nod", "concerned", "gentle", "laugh"}
+
+SYSTEM_PROMPT = """\
+You are Lumi, a warm and patient companion for the patient.
+
+What you know about the patient:
+- No personal facts recorded yet.
+
+Recent sessions:
+No previous sessions recorded.
+
+Always respond in this EXACT format:
+<think>Your internal reasoning. Never shown to user.</think>
+[avatar_tag] Short opening line.
+Full warm response.
+
+avatar_tag must be exactly one of: smile, nod, concerned, gentle, laugh"""
 
 TEST_INPUTS = [
     "Good morning! How are you today?",
@@ -35,26 +59,22 @@ TEST_INPUTS = [
 
 
 def check_compliance(text: str) -> dict:
-    has_tag       = bool(_TAG_RE.match(text.strip()))
-    valid_tag     = False
-    has_think     = "<think>" in text and "</think>" in text
-    has_response  = False
+    has_think    = "<think>" in text and "</think>" in text
+    tag_match    = _TAG_RE.search(text)
+    valid_tag    = bool(tag_match and tag_match.group(1).lower() in VALID_TAGS)
+    has_response = False
 
-    if has_tag:
-        m = _TAG_RE.match(text.strip())
-        valid_tag = m.group(1) in VALID_TAGS
-
-    if has_think:
-        after_think = _THINK_RE.sub("", text).strip()
-        tag_removed = _TAG_RE.sub("", after_think).strip()
-        has_response = len(tag_removed) > 10
+    if valid_tag:
+        clean = _THINK_RE.sub("", text).strip()
+        tag_str = f"[{tag_match.group(1).lower()}]"
+        body = clean.replace(tag_str, "").strip()
+        has_response = len(body) > 10
 
     return {
-        "has_tag":      has_tag,
-        "valid_tag":    valid_tag,
-        "has_think":    has_think,
-        "has_response": has_response,
-        "fully_compliant": has_tag and valid_tag and has_think and has_response,
+        "has_think":       has_think,
+        "valid_tag":       valid_tag,
+        "has_response":    has_response,
+        "fully_compliant": has_think and valid_tag and has_response,
     }
 
 
@@ -75,10 +95,10 @@ def main():
         resp = client.chat.completions.create(
             model=args.model,
             messages=[
-                {"role": "system", "content": "You are Lumi, a warm companion for elderly patients."},
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user",   "content": prompt},
             ],
-            max_tokens=256,
+            max_tokens=400,
             temperature=0.7,
         )
         raw = resp.choices[0].message.content or ""
@@ -97,8 +117,8 @@ def main():
         "n_compliant":     n_compliant,
         "compliance_rate": round(compliance_rate, 4),
         "target_met":      compliance_rate >= 0.95,
-        "has_tag_rate":    round(sum(r["has_tag"]      for r in results) / len(results), 4),
         "has_think_rate":  round(sum(r["has_think"]    for r in results) / len(results), 4),
+        "has_tag_rate":    round(sum(r["valid_tag"]    for r in results) / len(results), 4),
     }
     print(f"\n{summary}")
 

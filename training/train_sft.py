@@ -56,7 +56,7 @@ tokenizer.pad_token = tokenizer.eos_token
 
 model = AutoModelForCausalLM.from_pretrained(
     BASE_MODEL,
-    torch_dtype=torch.float16,  # explicit fp16 — "auto" may pick bf16 on ROCm
+    dtype=torch.float16,  # explicit fp16 — "auto" may pick bf16 on ROCm
     device_map="auto",
     token=HF_TOKEN,
 )

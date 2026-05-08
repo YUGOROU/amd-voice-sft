@@ -17,7 +17,7 @@ from trl import GRPOConfig, GRPOTrainer
 # CONFIG
 # =============================================================================
 
-BASE_MODEL  = "Qwen/Qwen3-4B-Instruct"
+BASE_MODEL  = "Debdeep30/lumi-qwen3-4b"   # SFT model — Phase 1 barely updated weights
 DATA_REPO   = "YUGOROU/lumi-data"
 DATA_CONFIG = "filtered"
 HF_TOKEN    = os.getenv("HF_TOKEN", "")
@@ -25,7 +25,7 @@ HF_TOKEN    = os.getenv("HF_TOKEN", "")
 # TRAINING_PHASE controls which reward functions are active:
 #   1 = format compliance ONLY — run this first until compliance > 95%
 #   2 = all rewards — add after Phase 1 checkpoint is stable
-TRAINING_PHASE = 1
+TRAINING_PHASE = 2
 
 assert HF_TOKEN, "Set HF_TOKEN environment variable in .env before running."
 login(token=HF_TOKEN)
@@ -57,19 +57,22 @@ print(f"Loaded {len(dataset):,} prompts. Sample:\n{dataset[0]['prompt'][:300]}")
 # Reward Functions
 # =============================================================================
 
-_TAG_RE    = re.compile(r"^\[(smile|nod|concerned|gentle|laugh)\]", re.IGNORECASE)
-_THINK_RE  = re.compile(r"<think>.*?</think>", re.DOTALL)
+_TAG_RE     = re.compile(r"\[(smile|nod|concerned|gentle|laugh)\]", re.IGNORECASE)
+_THINK_RE   = re.compile(r"<think>.*?</think>", re.DOTALL)
 _VALID_TAGS = {"smile", "nod", "concerned", "gentle", "laugh"}
 
 
 def format_reward_func(completions, **kwargs) -> list[float]:
     """
-    Graded reward (0.0–1.0) for full structural compliance.
+    Graded reward (0.0–1.0) for Qwen3's native format:
+      <think>...</think>
+      [avatar_tag] Opening line.
+      Full response.
 
-    +0.25  valid lowercase avatar tag at the start
-    +0.25  non-empty opening line between tag and <think>
-    +0.25  <think>...</think> block present
-    +0.25  non-empty full response after the think block
+    +0.25  <think>...</think> block is present
+    +0.25  valid avatar tag present anywhere in the completion
+    +0.25  non-empty opening line after the tag
+    +0.25  full response is at least 5 words after stripping think + tag
 
     Using graded partial credit gives the model a gradient signal even when
     it's only partially compliant — binary rewards stall early training.
@@ -79,23 +82,24 @@ def format_reward_func(completions, **kwargs) -> list[float]:
         text = completion.strip()
         score = 0.0
 
-        tag_match = _TAG_RE.match(text)
+        has_think = "<think>" in text and "</think>" in text
+        if has_think:
+            score += 0.25
+
+        tag_match = _TAG_RE.search(text)
         if tag_match and tag_match.group(1).lower() in _VALID_TAGS:
             score += 0.25
-            tag_str = tag_match.group(0)  # e.g. "[smile]"
+            tag_str = f"[{tag_match.group(1).lower()}]"
 
-            before_think = text.split("<think>")[0]
-            opening = before_think[len(tag_str):].strip()
-            if len(opening) > 5:
-                score += 0.25
+            clean = _THINK_RE.sub("", text).strip()
+            body = clean.replace(tag_str, "").strip()
+            lines = [l.strip() for l in body.split("\n") if l.strip()]
 
-            if "<think>" in text and "</think>" in text:
-                score += 0.25
+            if lines and len(lines[0]) > 5:
+                score += 0.25   # opening line present
 
-                after_think = _THINK_RE.sub("", text).strip()
-                full_resp = after_think[len(tag_str):].strip() if after_think.startswith(tag_str) else after_think
-                if len(full_resp.split()) > 5:
-                    score += 0.25
+            if len(body.split()) > 5:
+                score += 0.25   # full response present
 
         rewards.append(score)
     return rewards
@@ -153,8 +157,8 @@ training_args = GRPOConfig(
     learning_rate=2e-5,
     per_device_train_batch_size=2,
     gradient_accumulation_steps=4,
-    max_prompt_length=512,
-    max_completion_length=512,   # must fit: tag + opening + <think>...</think> + full response
+    max_completion_length=512,   # must fit: <think>...</think> + [tag] + opening + full response
+    num_generations=4,           # group size for GRPO advantage estimation
     num_train_epochs=1,
     fp16=True,
     logging_steps=5,
