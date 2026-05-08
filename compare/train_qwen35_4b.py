@@ -11,7 +11,7 @@ from unsloth import FastLanguageModel
 # CONFIG
 # =============================================================================
 
-BASE_MODEL  = "Qwen/Qwen3.5-4B-Instruct"
+BASE_MODEL  = "Qwen/Qwen3.5-4B"
 OUTPUT_DIR  = "./output/qwen35-4b-lumi-test"
 OUTPUT_REPO = "YUGOROU/lumi-qwen35-4b-test"
 DATA_REPO   = "YUGOROU/lumi-data"
