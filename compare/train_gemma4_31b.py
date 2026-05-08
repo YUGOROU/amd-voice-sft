@@ -15,7 +15,6 @@ DATA_REPO   = "YUGOROU/lumi-data"
 DATA_CONFIG = "filtered"
 HF_TOKEN    = os.getenv("HF_TOKEN", "")
 
-USE_LORA     = True
 LORA_R       = 16
 LORA_ALPHA   = 32
 LORA_DROPOUT = 0.05
@@ -31,44 +30,34 @@ WARMUP_RATIO = 0.03
 import torch
 from datasets import load_dataset
 from huggingface_hub import login
-from peft import LoraConfig, get_peft_model
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    TrainingArguments,
-)
 from trl import SFTTrainer, SFTConfig
+from unsloth import FastLanguageModel
 
 assert HF_TOKEN, "Set HF_TOKEN environment variable."
 login(token=HF_TOKEN)
 
-# --- Tokenizer & model -------------------------------------------------------
+# --- Model -------------------------------------------------------------------
 print(f"Loading {BASE_MODEL} ...")
-tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN)
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
-
-model = AutoModelForCausalLM.from_pretrained(
-    BASE_MODEL,
-    torch_dtype=torch.float16,   # fp16 — bf16 has incomplete ROCm support
-    device_map="auto",
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name=BASE_MODEL,
+    max_seq_length=MAX_SEQ_LEN,
+    dtype=torch.float16,    # fp16 — bf16 has incomplete ROCm support
+    load_in_4bit=False,     # avoid bitsandbytes NaN bug on AMD
     token=HF_TOKEN,
 )
-model.config.use_cache = False
 
-# --- LoRA --------------------------------------------------------------------
-if USE_LORA:
-    lora_config = LoraConfig(
-        r=LORA_R,
-        lora_alpha=LORA_ALPHA,
-        lora_dropout=LORA_DROPOUT,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj"],
-        bias="none",
-        task_type="CAUSAL_LM",
-    )
-    model = get_peft_model(model, lora_config)
-    model.print_trainable_parameters()
+model = FastLanguageModel.get_peft_model(
+    model,
+    r=LORA_R,
+    lora_alpha=LORA_ALPHA,
+    lora_dropout=LORA_DROPOUT,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                    "gate_proj", "up_proj", "down_proj"],
+    bias="none",
+    use_gradient_checkpointing="unsloth",
+    random_state=42,
+)
+model.print_trainable_parameters()
 
 # --- Dataset -----------------------------------------------------------------
 print(f"Loading {DATA_REPO} [{DATA_CONFIG}] ...")
@@ -107,7 +96,6 @@ trainer = SFTTrainer(
         save_strategy="epoch",
         output_dir=OUTPUT_DIR,
         report_to="none",
-        gradient_checkpointing=True,
     ),
 )
 
@@ -115,7 +103,7 @@ stats = trainer.train()
 print(f"Loss: {stats.training_loss:.4f}")
 
 # --- Save & push -------------------------------------------------------------
-trainer.save_model(OUTPUT_DIR)
+model.save_pretrained(OUTPUT_DIR)
 tokenizer.save_pretrained(OUTPUT_DIR)
 
 model.push_to_hub(OUTPUT_REPO, token=HF_TOKEN, private=True)
