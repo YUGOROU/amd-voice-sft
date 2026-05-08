@@ -26,7 +26,7 @@ import uvicorn
 from fastapi import FastAPI
 from peft import PeftModel
 from pydantic import BaseModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 
@@ -182,7 +182,10 @@ def load_model(base_model: str, adapter: str | None):
     model_name = adapter.split("/")[-1] if adapter else base_model.split("/")[-1]
 
     print(f"Loading tokenizer: {base_model}")
-    tokenizer = AutoTokenizer.from_pretrained(base_model, token=HF_TOKEN)
+    try:
+        tokenizer = AutoProcessor.from_pretrained(base_model, token=HF_TOKEN, padding_side="left")
+    except Exception:
+        tokenizer = AutoTokenizer.from_pretrained(base_model, token=HF_TOKEN)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
