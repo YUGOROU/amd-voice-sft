@@ -139,7 +139,7 @@ def load_model(base_model: str, adapter: str | None):
         except (ValueError, KeyError):
             # Fallback: transformers built-in adapter loader (handles Gemma4 etc.)
             print("PEFT load failed, trying transformers load_adapter()")
-            base.load_adapter(adapter, adapter_name="default", token=HF_TOKEN)
+            base.load_adapter(adapter, adapter_name="default")
             base.merge_adapter("default")
             model = base
     else:
