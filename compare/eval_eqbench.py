@@ -50,9 +50,10 @@ def run_eqbench(model_name: str, vllm_url: str, crof_api_key: str,
         # Judge — deepseek-v4-flash via crof.ai
         "JUDGE_API_KEY": crof_api_key,
         "JUDGE_API_URL": JUDGE_API_URL,
-        # Test model — vLLM OpenAI-compatible endpoint
-        "OPENAI_API_KEY":  "vllm",   # vLLM accepts any non-empty key
-        "OPENAI_API_BASE": vllm_url,
+        # Test model — transformers-based OpenAI-compatible endpoint
+        "OPENAI_API_KEY":  "vllm",   # server accepts any non-empty key
+        "OPENAI_API_BASE": vllm_url,  # openai v0.x
+        "OPENAI_BASE_URL": vllm_url,  # openai v1.x
     })
 
     cmd = [
