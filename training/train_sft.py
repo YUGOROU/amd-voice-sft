@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Load environment variables from .env
 
 # Must be set before any ROCm/torch import
 os.environ["HSA_OVERRIDE_GFX_VERSION"] = "9.4.2"
@@ -8,9 +11,9 @@ os.environ["HF_HUB_DISABLE_XET"] = "1"
 # CONFIG
 # =============================================================================
 
-# Qwen3-4B — strong instruction-following, best ROCm support for this size.
+# Qwen2.5-3B — strong instruction-following, best ROCm support for this size.
 # Alternatives (set BASE_MODEL and adjust USE_LORA / BATCH_SIZE accordingly):
-#   "Qwen/Qwen3-8B"                    — more capacity, ~8GB fp16
+#   "Qwen/Qwen2.5-7B-Instruct"          — more capacity, ~14GB fp16
 #   "unsloth/Meta-Llama-3.1-8B-Instruct" — Llama option, needs unsloth
 BASE_MODEL  = "Qwen/Qwen3-4B-Instruct"
 OUTPUT_REPO = "YUGOROU/lumi-qwen3-4b"
@@ -31,15 +34,16 @@ WARMUP_RATIO = 0.03
 
 # =============================================================================
 
+import torch
 from datasets import load_dataset
 from huggingface_hub import login
 from peft import LoraConfig, get_peft_model
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    TrainingArguments,
+    # TrainingArguments,  <-- replaced by SFTConfig
 )
-from trl import SFTTrainer
+from trl import SFTTrainer, SFTConfig
 
 assert HF_TOKEN, "Set HF_TOKEN environment variable before running."
 
@@ -52,7 +56,7 @@ tokenizer.pad_token = tokenizer.eos_token
 
 model = AutoModelForCausalLM.from_pretrained(
     BASE_MODEL,
-    torch_dtype="auto",   # fp16 on ROCm
+    torch_dtype=torch.float16,  # explicit fp16 — "auto" may pick bf16 on ROCm
     device_map="auto",
     token=HF_TOKEN,
 )
@@ -90,7 +94,7 @@ dataset = raw.map(format_sample, remove_columns=raw.column_names)
 print(f"Sample[:200]: {dataset[0]['text'][:200]}")
 
 # --- Train ------------------------------------------------------------------
-training_args = TrainingArguments(
+sft_config = SFTConfig(
     output_dir="./lumi-qwen3-output",
     per_device_train_batch_size=BATCH_SIZE,
     gradient_accumulation_steps=GRAD_ACCUM,
@@ -104,15 +108,15 @@ training_args = TrainingArguments(
     lr_scheduler_type="cosine",
     report_to="none",
     dataloader_num_workers=4,
+    dataset_text_field="text",
+    max_length=MAX_SEQ_LEN,
 )
 
 trainer = SFTTrainer(
     model=model,
-    tokenizer=tokenizer,
     train_dataset=dataset,
-    args=training_args,
-    dataset_text_field="text",
-    max_seq_length=MAX_SEQ_LEN,
+    args=sft_config,
+    processing_class=tokenizer,
 )
 
 stats = trainer.train()

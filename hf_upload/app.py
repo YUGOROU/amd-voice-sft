@@ -12,7 +12,6 @@ Environment variables (set as HF Space Secrets):
 """
 
 import os
-import sys
 import time
 from dotenv import load_dotenv
 
@@ -20,9 +19,6 @@ load_dotenv()
 
 import gradio as gr
 from openai import OpenAI
-
-# make pipeline importable when running from demo/
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline.memory import build_system_prompt, get_context, save_session
 from pipeline.parser import extract_facts_from_response, parse_structured_output

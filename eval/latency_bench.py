@@ -66,12 +66,11 @@ def measure_latencies(model_name: str, base_url: str, n: int) -> list[float]:
             delta = chunk.choices[0].delta.content or ""
             buffer += delta
 
-            if not opening_fired and "</think>" in buffer:
-                # think block ended — full opening line is now available
-                parsed = parse_structured_output(buffer)
-                if parsed["opening_line"]:
-                    t_opening = time.perf_counter()
-                    opening_fired = True
+            if not opening_fired and "<think>" in buffer:
+                # opening line is complete the moment <think> appears —
+                # this is when the pipeline fires TTS (latency-hiding trick)
+                t_opening = time.perf_counter()
+                opening_fired = True
 
         if t_opening is None:
             # fallback: first token with content
