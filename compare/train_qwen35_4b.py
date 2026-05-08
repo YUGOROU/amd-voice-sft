@@ -4,6 +4,9 @@ import os
 os.environ["HSA_OVERRIDE_GFX_VERSION"] = "9.4.2"
 os.environ["HF_HUB_DISABLE_XET"] = "1"
 
+# unsloth must be imported before trl/transformers/peft
+from unsloth import FastLanguageModel
+
 # =============================================================================
 # CONFIG
 # =============================================================================
@@ -31,7 +34,6 @@ import torch
 from datasets import load_dataset
 from huggingface_hub import login
 from trl import SFTTrainer, SFTConfig
-from unsloth import FastLanguageModel
 
 assert HF_TOKEN, "Set HF_TOKEN environment variable."
 login(token=HF_TOKEN)
