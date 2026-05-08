@@ -191,7 +191,7 @@ def load_model(base_model: str, adapter: str | None):
 
     model_name = adapter.split("/")[-1] if adapter else base_model.split("/")[-1]
     if HF_TOKEN:
-        login(token=HF_TOKEN)
+        login(token=HF_TOKEN or None)
 
     is_gemma = "gemma" in base_model.lower()
     dtype = torch.bfloat16 if "qwen3" in base_model.lower() else torch.float16
@@ -210,12 +210,12 @@ def load_model(base_model: str, adapter: str | None):
             base_model,
             torch_dtype=dtype,
             device_map={"": "cuda:0"},
-            token=HF_TOKEN,
+            token=HF_TOKEN or None,
         )
         try:
-            tok = AutoProcessor.from_pretrained(base_model, token=HF_TOKEN, padding_side="left")
+            tok = AutoProcessor.from_pretrained(base_model, token=HF_TOKEN or None, padding_side="left")
         except Exception:
-            tok = AutoTokenizer.from_pretrained(base_model, token=HF_TOKEN)
+            tok = AutoTokenizer.from_pretrained(base_model, token=HF_TOKEN or None)
     else:
         # Unsloth path for ROCm-compatible loading of non-Gemma models.
         from unsloth import FastLanguageModel
@@ -224,7 +224,7 @@ def load_model(base_model: str, adapter: str | None):
             max_seq_length=4096,
             dtype=dtype,
             load_in_4bit=False,
-            token=HF_TOKEN,
+            token=HF_TOKEN or None,
         )
 
     tokenizer = tok
@@ -235,7 +235,7 @@ def load_model(base_model: str, adapter: str | None):
     if adapter:
         print(f"Loading LoRA adapter: {adapter}")
         try:
-            base = PeftModel.from_pretrained(base, adapter, token=HF_TOKEN)
+            base = PeftModel.from_pretrained(base, adapter, token=HF_TOKEN or None)
             base = base.merge_and_unload()
         except (ValueError, KeyError):
             print("PEFT load failed, trying manual LoRA merge ...")
