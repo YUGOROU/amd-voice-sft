@@ -13,6 +13,9 @@ Environment variables (set as HF Space Secrets):
 
 import os
 import time
+import tempfile
+import numpy as np
+import soundfile as sf
 from PIL import Image
 from dotenv import load_dotenv
 
@@ -40,12 +43,16 @@ TTS_URL       = os.getenv("TTS_URL", "")
 
 llm = OpenAI(base_url=VLLM_BASE_URL, api_key=os.getenv("OPENAI_API_KEY", "not-required"))
 
-# Avatar image paths (relative to this file)
 AVATAR_DIR = os.path.join(os.path.dirname(__file__), "avatar")
 AVATAR_IMAGES = {
     tag: Image.open(os.path.join(AVATAR_DIR, f"avatar_{tag}.png"))
     for tag in ("smile", "nod", "concerned", "gentle", "laugh")
 }
+
+# VAD tuning
+SILENCE_THRESHOLD = 0.015   # normalised RMS below which a chunk is "silent"
+SILENCE_CHUNKS    = 6       # consecutive silent chunks → end of utterance (~1.5 s)
+MIN_SPEECH_CHUNKS = 3       # ignore clips shorter than this (~0.75 s)
 
 # ---------------------------------------------------------------------------
 # Core conversation logic
@@ -85,16 +92,14 @@ def _build_messages(history: list[dict]) -> list[dict]:
 
 
 def _process_response(raw: str) -> dict:
-    """Parse structured output and queue TTS for the opening line."""
     parsed = parse_structured_output(raw)
     audio_path = None
     if TTS_URL:
-        audio_path = synthesize(parsed["opening_line"])
+        audio_path = synthesize(parsed["full_response"])
     return {**parsed, "audio_path": audio_path}
 
 
 def _end_of_session_summary(history: list[dict]) -> str:
-    """Generate a family-readable session summary via LLM."""
     if len(history) < 2:
         return ""
     summary_prompt = [
@@ -120,14 +125,14 @@ def _end_of_session_summary(history: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 
 def text_chat(message: str, history: list[dict]):
-    """Mode 1 — text in, streamed text out (no TTS)."""
+    """Text in → streamed text out."""
     is_scam, deflection = check_and_deflect(message)
     if is_scam:
         new_history = history + [
             {"role": "user",      "content": message},
             {"role": "assistant", "content": deflection},
         ]
-        yield new_history
+        yield new_history, AVATAR_IMAGES["gentle"]
         return
 
     messages = _build_messages(history) + [{"role": "user", "content": message}]
@@ -142,68 +147,146 @@ def text_chat(message: str, history: list[dict]):
         new_history[-1]["content"] = parsed["full_response"]
         yield new_history, AVATAR_IMAGES.get(parsed["avatar_tag"], AVATAR_IMAGES["smile"])
 
-    # persist facts
     facts = extract_facts_from_response(partial)
     if facts:
         save_session(PATIENT_ID, facts, "unknown", "unknown",
                      f"Text session — {len(new_history)//2} turns")
 
 
-def voice_chat(audio_path: str | None, history: list[dict]):
-    """Mode 2 — mic in → STT → LLM → TTS → avatar."""
-    if not audio_path:
-        return history, None, "", AVATAR_IMAGES["smile"]
+# ---------------------------------------------------------------------------
+# Live voice — streaming VAD
+# ---------------------------------------------------------------------------
 
-    t0 = time.time()
-    user_text = transcribe(audio_path) if STT_URL else "[STT not configured]"
+_LIVE_STATE_DEFAULT = {
+    "buffer":        [],    # accumulated audio chunks (numpy arrays)
+    "sr":            16000, # sample rate (updated on first chunk)
+    "silent_chunks": 0,
+    "is_speaking":   False,
+    "history":       [],
+}
+
+
+def _rms(audio: np.ndarray) -> float:
+    a = audio.astype(np.float32) / 32768.0
+    return float(np.sqrt(np.mean(a ** 2)))
+
+
+def _save_wav(chunks: list[np.ndarray], sr: int) -> str:
+    audio = np.concatenate(chunks)
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    sf.write(tmp.name, audio, sr)
+    tmp.close()
+    return tmp.name
+
+
+def live_stream(chunk, state: dict):
+    """
+    Called on every ~250 ms audio chunk from the microphone.
+    Returns: (new_state, tts_audio_path, chatbot_history, status_md, avatar_img)
+    """
+    no_change = (state, None, state["history"], "🎙 Listening…", AVATAR_IMAGES["smile"])
+
+    if chunk is None:
+        return no_change
+
+    sr, audio = chunk
+    state = dict(state)          # shallow copy so Gradio detects change
+    state["sr"] = int(sr)
+
+    energy = _rms(audio)
+    state["buffer"] = state["buffer"] + [audio]
+
+    if energy > SILENCE_THRESHOLD:
+        state["is_speaking"]   = True
+        state["silent_chunks"] = 0
+        return state, None, state["history"], "🗣 Listening — speak freely…", AVATAR_IMAGES["nod"]
+
+    # Silent chunk
+    state["silent_chunks"] = state["silent_chunks"] + 1
+
+    if not state["is_speaking"] or state["silent_chunks"] < SILENCE_CHUNKS:
+        return state, None, state["history"], "🎙 Listening…", AVATAR_IMAGES["smile"]
+
+    # ── End of utterance detected ──────────────────────────────────────────
+    speech_chunks = state["buffer"][: -state["silent_chunks"]]  # trim trailing silence
+    state["buffer"]        = []
+    state["silent_chunks"] = 0
+    state["is_speaking"]   = False
+
+    if len(speech_chunks) < MIN_SPEECH_CHUNKS:
+        return state, None, state["history"], "🎙 Listening…", AVATAR_IMAGES["smile"]
+
+    # STT
+    audio_path = _save_wav(speech_chunks, state["sr"])
+    user_text  = ""
+    try:
+        user_text = transcribe(audio_path) if STT_URL else "[STT not configured]"
+    except Exception as e:
+        print(f"[STT] {e}")
+    finally:
+        try:
+            os.unlink(audio_path)
+        except OSError:
+            pass
+
     if not user_text:
-        return history, None, "", AVATAR_IMAGES["smile"]
+        return state, None, state["history"], "🎙 Listening…", AVATAR_IMAGES["smile"]
 
+    # Scam check
     is_scam, deflection = check_and_deflect(user_text)
     if is_scam:
-        audio_out = synthesize(deflection) if TTS_URL else None
-        new_history = history + [
+        tts_path = synthesize(deflection) if TTS_URL else None
+        new_history = state["history"] + [
             {"role": "user",      "content": f"🎤 {user_text}"},
             {"role": "assistant", "content": deflection},
         ]
-        return new_history, audio_out, f"⏱ {time.time()-t0:.1f}s", AVATAR_IMAGES["gentle"]
+        state["history"] = new_history
+        return state, tts_path, new_history, "🎙 Listening…", AVATAR_IMAGES["gentle"]
 
-    messages = _build_messages(history) + [{"role": "user", "content": user_text}]
-    raw = _call_llm(messages)
-    parsed = _process_response(raw)
+    # LLM + TTS
+    messages = _build_messages(state["history"]) + [{"role": "user", "content": user_text}]
+    response_text = ""
+    tts_path      = None
+    avatar        = AVATAR_IMAGES["smile"]
+    try:
+        raw    = _call_llm(messages)
+        parsed = parse_structured_output(raw)
+        response_text = parsed["full_response"]
+        avatar        = AVATAR_IMAGES.get(parsed["avatar_tag"], AVATAR_IMAGES["smile"])
+        tts_path      = synthesize(response_text) if TTS_URL else None
 
-    latency = time.time() - t0
-    new_history = history + [
+        facts = extract_facts_from_response(raw)
+        if facts:
+            save_session(PATIENT_ID, facts, "unknown", "unknown", "Live voice session")
+    except Exception as e:
+        print(f"[LLM/TTS] {e}")
+        response_text = "I'm sorry, I had a little trouble just then. Could you say that again?"
+        tts_path = synthesize(response_text) if TTS_URL else None
+
+    new_history = state["history"] + [
         {"role": "user",      "content": f"🎤 {user_text}"},
-        {"role": "assistant", "content": parsed["full_response"]},
+        {"role": "assistant", "content": response_text},
     ]
-
-    facts = extract_facts_from_response(raw)
-    if facts:
-        save_session(PATIENT_ID, facts, "unknown", "unknown",
-                     f"Voice session — {len(new_history)//2} turns")
-
-    return new_history, parsed["audio_path"], f"⏱ {latency:.1f}s", AVATAR_IMAGES.get(parsed["avatar_tag"], AVATAR_IMAGES["smile"])
+    state["history"] = new_history
+    return state, tts_path, new_history, "🎙 Listening…", avatar
 
 
 def end_session(history: list[dict]):
-    """Generate family summary card at end of session."""
     if not history:
         return "No conversation to summarise."
     summary = _end_of_session_summary(history)
     date = time.strftime("%B %d, %Y")
-    card = (
+    return (
         f"SESSION SUMMARY — {date}\n"
         f"Patient: {PATIENT_NAME}\n"
         f"Duration: {len(history)//2} turns\n\n"
         f"{summary}"
     )
-    return card
 
 
 def load_memory_display():
     ctx = get_context(PATIENT_ID)
-    facts_txt = "\n".join(f"• {f}" for f in ctx["facts"]) or "(none yet)"
+    facts_txt    = "\n".join(f"• {f}" for f in ctx["facts"]) or "(none yet)"
     sessions_txt = "\n\n---\n\n".join(ctx["summaries"]) or "(no previous sessions)"
     return facts_txt, sessions_txt
 
@@ -215,7 +298,7 @@ def load_memory_display():
 CSS = """
 #avatar-img { border-radius: 50%; max-width: 200px; margin: auto; display: block; }
 #lumi-header { text-align: center; }
-.latency-badge { font-size: 0.75rem; color: #888; }
+.status-badge { font-size: 0.85rem; color: #555; text-align: center; }
 """
 
 with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS) as demo:
@@ -226,7 +309,7 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
 
     # ── Avatar ──────────────────────────────────────────────────────────────
     avatar_img = gr.Image(
-        value=AVATAR_IMAGES.get("smile"),
+        value=AVATAR_IMAGES["smile"],
         label="Lumi",
         show_label=False,
         elem_id="avatar-img",
@@ -244,7 +327,7 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
                 height=420,
                 label="Conversation",
                 type="messages",
-                avatar_images=(None, AVATAR_IMAGES.get("smile")),
+                avatar_images=(None, AVATAR_IMAGES["smile"]),
             )
             with gr.Row():
                 msg1  = gr.Textbox(
@@ -271,41 +354,32 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
                 lambda: "", None, msg1
             )
 
-        # Tab 2 — Voice Chat
-        with gr.Tab("🎤 Voice Chat"):
-            chatbot2 = gr.Chatbot(
-                height=360,
-                label="Conversation",
-                type="messages",
+        # Tab 2 — Live Voice Chat
+        with gr.Tab("🎤 Live Voice Chat"):
+            gr.Markdown(
+                "**Click the microphone button once to start.** "
+                "Speak naturally — Lumi listens automatically and responds when you pause. "
+                "Click the button again to stop the session."
             )
-            audio_in  = gr.Audio(
+
+            chatbot2 = gr.Chatbot(height=300, label="Conversation", type="messages")
+
+            mic_live = gr.Audio(
                 sources=["microphone"],
-                type="filepath",
-                label="Speak to Lumi",
+                streaming=True,
+                type="numpy",
+                label="🎙 Microphone",
             )
-            audio_out = gr.Audio(
-                label="Lumi's voice",
-                autoplay=True,
-            )
-            latency_badge = gr.Markdown("", elem_classes=["latency-badge"])
+            audio_live_out = gr.Audio(label="Lumi's voice", autoplay=True)
+            status_live = gr.Markdown("🎙 Listening…", elem_classes=["status-badge"])
 
-            audio_in.stop_recording(
-                voice_chat,
-                [audio_in, chatbot2],
-                [chatbot2, audio_out, latency_badge, avatar_img],
-            )
+            live_state = gr.State(dict(_LIVE_STATE_DEFAULT))
 
-            if not STT_URL:
-                gr.Markdown(
-                    "> **Note:** `STT_URL` not configured — voice transcription disabled. "
-                    "Set the Space secret to enable full voice mode.",
-                    visible=True,
-                )
-            if not TTS_URL:
-                gr.Markdown(
-                    "> **Note:** `TTS_URL` not configured — voice output disabled.",
-                    visible=True,
-                )
+            mic_live.stream(
+                live_stream,
+                inputs=[mic_live, live_state],
+                outputs=[live_state, audio_live_out, chatbot2, status_live, avatar_img],
+            )
 
         # Tab 3 — Family Dashboard
         with gr.Tab("👨‍👩‍👧 Family Dashboard"):
@@ -326,16 +400,8 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
             gr.Markdown("### Lumi's Memory")
             refresh_btn = gr.Button("Refresh Memory", size="sm")
             with gr.Row():
-                facts_box    = gr.Textbox(
-                    label="Known Facts",
-                    lines=6,
-                    interactive=False,
-                )
-                sessions_box = gr.Textbox(
-                    label="Previous Session Summaries",
-                    lines=6,
-                    interactive=False,
-                )
+                facts_box    = gr.Textbox(label="Known Facts",                lines=6, interactive=False)
+                sessions_box = gr.Textbox(label="Previous Session Summaries", lines=6, interactive=False)
             refresh_btn.click(load_memory_display, [], [facts_box, sessions_box])
 
         # Tab 4 — About
@@ -349,7 +415,7 @@ Lumi is a fine-tuned AI voice companion designed for elderly patients with demen
 - **Domain fine-tuned** — Qwen3-4B fine-tuned on 8,540 dementia-care conversations via SFT + GRPO (two-phase RL)
 - **Persistent memory** — remembers personal details across sessions using ChromaDB
 - **Scam protection** — detects and deflects elder fraud attempts without alarming the patient
-- **Voice-native** — Whisper STT → Lumi → TTS, <1.5s time-to-first-audio
+- **Voice-native** — Whisper STT → Lumi → TTS, continuous live conversation
 - **AMD MI300X** — fine-tuned and served on AMD hardware via ROCm + vLLM
 
 **Patient:** {PATIENT_NAME} | **Model:** {MODEL_NAME}
@@ -359,7 +425,6 @@ Lumi is a fine-tuned AI voice companion designed for elderly patients with demen
 Built for the AMD Developer Hackathon 2026 · Fine-Tuning Track
 """)
 
-    # load memory on startup
     demo.load(load_memory_display, [], [facts_box, sessions_box])
 
 if __name__ == "__main__":
