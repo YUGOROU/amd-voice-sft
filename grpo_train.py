@@ -104,12 +104,19 @@ lora_config = LoraConfig(
     task_type="CAUSAL_LM",
 )
 
+model = apply_lora_gemma4(model, lora_config)
+
 if RESUME_CHECKPOINT:
-    from peft import PeftModel
-    print(f"Loading LoRA from checkpoint: {RESUME_CHECKPOINT}")
-    model = PeftModel.from_pretrained(model, RESUME_CHECKPOINT, is_trainable=True)
-else:
-    model = apply_lora_gemma4(model, lora_config)
+    from peft import set_peft_model_state_dict
+    from safetensors.torch import load_file as st_load
+    import glob
+    print(f"Loading LoRA weights from checkpoint: {RESUME_CHECKPOINT}")
+    ckpt_files = sorted(glob.glob(f"{RESUME_CHECKPOINT}/adapter_model*.safetensors"))
+    state_dict = {}
+    for f in ckpt_files:
+        state_dict.update(st_load(f, device="cpu"))
+    set_peft_model_state_dict(model, state_dict)
+    print(f"Loaded {len(state_dict)} tensors from checkpoint")
 model.print_trainable_parameters()
 
 tokenizer = AutoTokenizer.from_pretrained(SFT_MODEL_REPO, token=HF_TOKEN)
