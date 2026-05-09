@@ -71,25 +71,22 @@ login(token=HF_TOKEN)
 
 
 
-# ROCm: メインスレッドで先にGPUを初期化しないとローダースレッドがCUDA initに失敗する
-torch.cuda.init()
-
-# ROCm: cudart() が存在しないため caching_allocator_warmup をno-opにパッチ
-try:
-    torch.cuda.cudart()
-except Exception:
-    import transformers.modeling_utils as _mu
-    _mu.caching_allocator_warmup = lambda *a, **kw: None
+# ROCm: transformers 5.8のスレッドローダーがcudartを呼ぶのを回避するため
+# CPUにロードしてからGPUへ移動する（RAM 240GB あるので問題なし）
+import transformers.modeling_utils as _mu
+_mu.caching_allocator_warmup = lambda *a, **kw: None
 
 print(f"Loading SFT model: {SFT_MODEL_REPO}")
 model = AutoModelForCausalLM.from_pretrained(
     SFT_MODEL_REPO,
     attn_implementation="sdpa",
     dtype=torch.bfloat16,
-    device_map={"": "cuda:0"},
+    device_map="cpu",
     token=HF_TOKEN,
 )
 model.config.use_cache = False
+print("Moving model to cuda:0 ...")
+model = model.to("cuda:0")
 
 # LoRA必須: 31B full fine-tuneはoptimizer statesで192GB超過する
 lora_config = LoraConfig(
