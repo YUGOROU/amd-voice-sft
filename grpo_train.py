@@ -164,7 +164,7 @@ for stage_idx, (reward_funcs, reward_weights, n_epochs, desc) in enumerate(STAGE
         learning_rate=5e-6,
         lr_scheduler_type="cosine",
         logging_steps=5,
-        save_steps=50,
+        save_steps=25,
         use_vllm=False,
         num_generations=4,
         report_to="none",
