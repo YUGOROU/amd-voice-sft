@@ -97,7 +97,7 @@ dataset = raw.map(format_sample, remove_columns=raw.column_names)
 sft_config = SFTConfig(
     output_dir=OUTPUT_DIR,
     num_train_epochs=3,
-    per_device_train_batch_size=4,
+    per_device_train_batch_size=6,
     gradient_accumulation_steps=8,
     gradient_checkpointing=False,
     bf16=True,
