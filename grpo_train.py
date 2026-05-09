@@ -65,6 +65,13 @@ login(token=HF_TOKEN)
 
 
 
+# ROCm: cudart() が存在しないため caching_allocator_warmup をno-opにパッチ
+try:
+    torch.cuda.cudart()
+except Exception:
+    import transformers.modeling_utils as _mu
+    _mu.caching_allocator_warmup = lambda *a, **kw: None
+
 print(f"Loading SFT model: {SFT_MODEL_REPO}")
 model = AutoModelForCausalLM.from_pretrained(
     SFT_MODEL_REPO,
