@@ -27,6 +27,33 @@ from huggingface_hub import login
 
 from reward_functions import STAGE_CONFIGS
 
+
+def apply_lora_gemma4(model, lora_cfg):
+    try:
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4ClippableLinear
+    except ImportError:
+        return get_peft_model(model, lora_cfg)
+
+    wrappers = {}
+    for name, mod in list(model.named_modules()):
+        if isinstance(mod, Gemma4ClippableLinear):
+            parts = name.split(".")
+            parent = model
+            for p in parts[:-1]:
+                parent = getattr(parent, p)
+            setattr(parent, parts[-1], mod.linear)
+            wrappers[name] = (parent, parts[-1], mod)
+
+    print(f"Temporarily unwrapped {len(wrappers)} Gemma4ClippableLinear modules")
+    peft_model = get_peft_model(model, lora_cfg)
+
+    for name, (parent, child_name, wrapper) in wrappers.items():
+        wrapper.linear = getattr(parent, child_name)
+        setattr(parent, child_name, wrapper)
+
+    print(f"Restored {len(wrappers)} Gemma4ClippableLinear wrappers with LoRA inside")
+    return peft_model
+
 SFT_MODEL_REPO = os.getenv("SFT_MODEL", "YUGOROU/lumi-sft")
 HF_DATASET     = "YUGOROU/lumi-data"
 DATA_CONFIG    = "filtered"
@@ -75,7 +102,7 @@ lora_config = LoraConfig(
     bias="none",
     task_type="CAUSAL_LM",
 )
-model = get_peft_model(model, lora_config)
+model = apply_lora_gemma4(model, lora_config)
 model.print_trainable_parameters()
 
 tokenizer = AutoTokenizer.from_pretrained(SFT_MODEL_REPO, token=HF_TOKEN)

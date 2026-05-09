@@ -34,7 +34,45 @@ model = AutoModelForCausalLM.from_pretrained(
     token=HF_TOKEN,
 )
 model.config.use_cache = False
-model = get_peft_model(model, lora_config)
+
+
+def apply_lora_gemma4(model, lora_cfg):
+    """
+    Gemma4ClippableLinear はPEFTのホワイトリスト外なので、
+    一時的に内側のnn.Linearを露出させてLoRAを適用し、
+    完了後にラッパーを復元する。
+    """
+    try:
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4ClippableLinear
+    except ImportError:
+        return get_peft_model(model, lora_cfg)
+
+    # Step1: ClippableLinear → 内側のlinearに一時置換
+    wrappers = {}
+    for name, mod in list(model.named_modules()):
+        if isinstance(mod, Gemma4ClippableLinear):
+            parts = name.split(".")
+            parent = model
+            for p in parts[:-1]:
+                parent = getattr(parent, p)
+            setattr(parent, parts[-1], mod.linear)
+            wrappers[name] = (parent, parts[-1], mod)
+
+    print(f"Temporarily unwrapped {len(wrappers)} Gemma4ClippableLinear modules")
+
+    # Step2: LoRA適用（内側のnn.Linearに対して実行される）
+    peft_model = get_peft_model(model, lora_cfg)
+
+    # Step3: ラッパーを復元（内側はLoRA済みのモジュールになっている）
+    for name, (parent, child_name, wrapper) in wrappers.items():
+        wrapper.linear = getattr(parent, child_name)
+        setattr(parent, child_name, wrapper)
+
+    print(f"Restored {len(wrappers)} Gemma4ClippableLinear wrappers with LoRA inside")
+    return peft_model
+
+
+model = apply_lora_gemma4(model, lora_config)
 model.print_trainable_parameters()
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, token=HF_TOKEN)
