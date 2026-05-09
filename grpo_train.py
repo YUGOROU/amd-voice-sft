@@ -150,7 +150,7 @@ for stage_idx, (reward_funcs, reward_weights, n_epochs, desc) in enumerate(STAGE
         model=model,
         args=grpo_config,
         train_dataset=dataset,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         reward_funcs=reward_funcs,
     )
     trainer.train()
