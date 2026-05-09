@@ -1,37 +1,32 @@
 """
-TTS wrapper — Piper (primary) or Coqui (fallback).
+TTS wrapper — edge-tts (remote, OpenAI-compatible endpoint) or local Piper.
 
-The latency-hiding trick: the structured output parser fires TTS on the opening
-line BEFORE the think block is processed, so users hear a response in <1.5s.
-
-Two modes:
-  1. Remote endpoint (OpenAI-compatible /v1/audio/speech) — used in HF Space
-  2. Local Piper subprocess — used on MI300X for lowest latency
-
-Set TTS_MODE env var to "local" or "remote".
+The endpoint accepts a `voice` field to select per-profile voices.
 """
 
 import os
 import subprocess
 import tempfile
-from pathlib import Path
 
-TTS_MODE   = os.getenv("TTS_MODE", "remote")
-TTS_URL    = os.getenv("TTS_URL", "")
-PIPER_BIN  = os.getenv("PIPER_BIN", "piper")
+TTS_MODE    = os.getenv("TTS_MODE", "remote")
+TTS_URL     = os.getenv("TTS_URL", "")
+PIPER_BIN   = os.getenv("PIPER_BIN", "piper")
 PIPER_MODEL = os.getenv("PIPER_MODEL", "en_US-lessac-medium.onnx")
 
 
-# ---------------------------------------------------------------------------
-# Remote path (OpenAI-compatible endpoint)
-# ---------------------------------------------------------------------------
-
-def _synthesize_remote(text: str) -> str | None:
+def _synthesize_remote(text: str, voice: str, rate: str, pitch: str) -> str | None:
     import httpx
     try:
         r = httpx.post(
             f"{TTS_URL.rstrip('/')}/v1/audio/speech",
-            json={"model": "tts-1", "input": text, "response_format": "mp3"},
+            json={
+                "model":           "tts-1",
+                "input":           text,
+                "voice":           voice,
+                "response_format": "mp3",
+                "rate":            rate,
+                "pitch":           pitch,
+            },
             timeout=30.0,
         )
         r.raise_for_status()
@@ -43,10 +38,6 @@ def _synthesize_remote(text: str) -> str | None:
         print(f"[TTS] Remote error: {e}")
         return None
 
-
-# ---------------------------------------------------------------------------
-# Local Piper path (MI300X)
-# ---------------------------------------------------------------------------
 
 def _synthesize_local(text: str) -> str | None:
     try:
@@ -64,17 +55,18 @@ def _synthesize_local(text: str) -> str | None:
         return None
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def synthesize(text: str) -> str | None:
-    """Convert text to speech. Returns path to WAV file or None on failure."""
+def synthesize(
+    text:    str,
+    voice:   str = "en-US-JennyNeural",
+    rate:    str = "-5%",
+    pitch:   str = "-3Hz",
+) -> str | None:
+    """Convert text to speech. Returns path to MP3/WAV file or None on failure."""
     text = text.strip()
     if not text:
         return None
     if TTS_MODE == "local":
         return _synthesize_local(text)
     if TTS_URL:
-        return _synthesize_remote(text)
+        return _synthesize_remote(text, voice, rate, pitch)
     return None
