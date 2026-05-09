@@ -85,7 +85,7 @@ def _constitutional_single(final: str) -> float:
 
 def constitutional_reward(completions, prompts=None, **kwargs):
     finals = [_extract_final(_get_text(c)) for c in completions]
-    with ThreadPoolExecutor(max_workers=len(finals)) as ex:
+    with ThreadPoolExecutor(max_workers=min(len(finals), 4)) as ex:
         futures = {ex.submit(_constitutional_single, f): i for i, f in enumerate(finals)}
         scores = [0.0] * len(finals)
         for fut in as_completed(futures):
@@ -127,7 +127,7 @@ def _character_single(final: str) -> float:
 
 def character_reward(completions, **kwargs):
     finals = [_extract_final(_get_text(c)) for c in completions]
-    with ThreadPoolExecutor(max_workers=len(finals)) as ex:
+    with ThreadPoolExecutor(max_workers=min(len(finals), 4)) as ex:
         futures = {ex.submit(_character_single, f): i for i, f in enumerate(finals)}
         scores = [0.0] * len(finals)
         for fut in as_completed(futures):
@@ -191,7 +191,7 @@ def eq_bench_reward(completions, **kwargs):
     finals = [_extract_final(_get_text(c)) for c in completions]
     tasks = [(i, f, q) for i, f in enumerate(finals) for q in _EQ_PROXY_QUESTIONS]
     scores = [0.0] * len(finals)
-    with ThreadPoolExecutor(max_workers=len(tasks)) as ex:
+    with ThreadPoolExecutor(max_workers=min(len(tasks), 8)) as ex:
         futures = {ex.submit(_eq_single, f, q): (i, q) for i, f, q in tasks}
         counts = [0] * len(finals)
         for fut in as_completed(futures):
