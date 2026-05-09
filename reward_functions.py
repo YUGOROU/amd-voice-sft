@@ -1,7 +1,7 @@
 import os
 import re
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait as fut_wait
 from openai import OpenAI
 
 CROF_API_KEY = os.getenv("CROF_API_KEY", "")
@@ -10,6 +10,8 @@ assert CROF_API_KEY, "Set CROF_API_KEY environment variable."
 crof_client = OpenAI(
     api_key=CROF_API_KEY,
     base_url="https://crof.ai/v1",
+    max_retries=0,
+    timeout=12.0,
 )
 
 AVATAR_TAGS = ["[smile]", "[nod]", "[concerned]", "[gentle]", "[laugh]"]
@@ -85,10 +87,11 @@ def _constitutional_single(final: str) -> float:
 
 def constitutional_reward(completions, prompts=None, **kwargs):
     finals = [_extract_final(_get_text(c)) for c in completions]
-    with ThreadPoolExecutor(max_workers=min(len(finals), 4)) as ex:
+    with ThreadPoolExecutor(max_workers=len(finals)) as ex:
         futures = {ex.submit(_constitutional_single, f): i for i, f in enumerate(finals)}
         scores = [0.0] * len(finals)
-        for fut in as_completed(futures):
+        done, _ = fut_wait(list(futures.keys()), timeout=20.0)
+        for fut in done:
             scores[futures[fut]] = fut.result()
     return scores
 
@@ -127,10 +130,11 @@ def _character_single(final: str) -> float:
 
 def character_reward(completions, **kwargs):
     finals = [_extract_final(_get_text(c)) for c in completions]
-    with ThreadPoolExecutor(max_workers=min(len(finals), 4)) as ex:
+    with ThreadPoolExecutor(max_workers=len(finals)) as ex:
         futures = {ex.submit(_character_single, f): i for i, f in enumerate(finals)}
         scores = [0.0] * len(finals)
-        for fut in as_completed(futures):
+        done, _ = fut_wait(list(futures.keys()), timeout=20.0)
+        for fut in done:
             scores[futures[fut]] = fut.result()
     return scores
 
@@ -191,14 +195,15 @@ def eq_bench_reward(completions, **kwargs):
     finals = [_extract_final(_get_text(c)) for c in completions]
     tasks = [(i, f, q) for i, f in enumerate(finals) for q in _EQ_PROXY_QUESTIONS]
     scores = [0.0] * len(finals)
-    with ThreadPoolExecutor(max_workers=min(len(tasks), 8)) as ex:
+    with ThreadPoolExecutor(max_workers=len(tasks)) as ex:
         futures = {ex.submit(_eq_single, f, q): (i, q) for i, f, q in tasks}
         counts = [0] * len(finals)
-        for fut in as_completed(futures):
+        done, _ = fut_wait(list(futures.keys()), timeout=25.0)
+        for fut in done:
             i, _ = futures[fut]
             scores[i] += fut.result()
             counts[i] += 1
-    return [s / counts[i] for i, s in enumerate(scores)]
+    return [s / max(counts[i], 1) for i, s in enumerate(scores)]
 
 
 # ────────────────────────────────────────────
