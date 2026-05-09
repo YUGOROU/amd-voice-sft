@@ -16,6 +16,12 @@ Prerequisites:
   2. export CROF_API_KEY=...  HF_TOKEN=...
 """
 import os
+
+# Must be set before any ROCm/torch import
+os.environ["HSA_OVERRIDE_GFX_VERSION"] = "9.4.2"
+os.environ["HF_HUB_DISABLE_XET"] = "1"
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import GRPOTrainer, GRPOConfig
