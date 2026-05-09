@@ -61,9 +61,9 @@ model = AutoModelForCausalLM.from_pretrained(
     attn_implementation="sdpa",
     torch_dtype=torch.bfloat16,
     device_map={"": "cuda:0"},
-    use_cache=False,
     token=HF_TOKEN,
 )
+model.config.use_cache = False
 
 # LoRA必須: 31B full fine-tuneはoptimizer statesで192GB超過する
 lora_config = LoraConfig(
