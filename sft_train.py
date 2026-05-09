@@ -6,7 +6,7 @@ from peft import LoraConfig, get_peft_model
 from datasets import load_dataset
 from huggingface_hub import login
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 MODEL_ID    = "google/gemma-4-31b-it"
 HF_DATASET  = "YUGOROU/lumi-data"
@@ -99,7 +99,7 @@ dataset = raw.map(format_sample, remove_columns=raw.column_names)
 sft_config = SFTConfig(
     output_dir=OUTPUT_DIR,
     num_train_epochs=3,
-    per_device_train_batch_size=5,
+    per_device_train_batch_size=4,
     gradient_accumulation_steps=8,
     gradient_checkpointing=False,
     bf16=True,
