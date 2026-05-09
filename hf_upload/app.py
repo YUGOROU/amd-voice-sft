@@ -302,6 +302,12 @@ CSS = """
    Large fonts, generous spacing, calming palette for elderly users
    ================================================================ */
 
+/* Hide empty video drop-zone (Gradio renders it even when visible=False) */
+#avatar-video .empty.svelte-p5msvs,
+#avatar-video .upload,
+#avatar-video .wrap.svelte-1dmqpg4,
+.video-component .empty { display: none !important; }
+
 /* Base */
 .gradio-container {
     max-width: 860px !important;
@@ -554,7 +560,7 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=_lumi_theme, css=CSS) as 
     # ── Header ──────────────────────────────────────────────────────────────
     with gr.Row(elem_id="lumi-header"):
         gr.Markdown(
-            f"# ☀️ Lumi — Your Voice Companion\n"
+            f"# Lumi — Your Voice Companion\n"
             f"*Good day, {PATIENT_NAME}! I'm here whenever you'd like to chat.*"
         )
 
