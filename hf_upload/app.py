@@ -297,14 +297,256 @@ def load_memory_display():
 # ---------------------------------------------------------------------------
 
 CSS = """
-#avatar-img   { border-radius: 50%; max-width: 200px; margin: auto; display: block; }
-#avatar-video { border-radius: 16px; max-width: 280px; margin: auto; display: block; }
-#lumi-header  { text-align: center; }
-.status-badge { font-size: 0.85rem; color: #555; text-align: center; }
-.profile-desc { font-size: 0.85rem; color: #666; text-align: center; margin-top: 4px; }
+/* ================================================================
+   Lumi — Clear Sky Theme (white + soft sky-blue)
+   Large fonts, generous spacing, calming palette for elderly users
+   ================================================================ */
+
+/* Base */
+.gradio-container {
+    max-width: 860px !important;
+    margin: 0 auto !important;
+    background: #f7fbff !important;
+    font-family: 'Georgia', serif !important;
+}
+
+/* Soft sky-blue page background */
+body, .main, footer {
+    background: #f0f6ff !important;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+#lumi-header {
+    text-align: center;
+    padding: 28px 0 12px;
+    background: linear-gradient(160deg, #e8f4fd 0%, #daeeff 50%, #f0f6ff 100%);
+    border-radius: 20px;
+    margin-bottom: 4px;
+    box-shadow: 0 2px 12px rgba(100, 160, 220, 0.12);
+}
+#lumi-header h1 {
+    font-size: 2.0rem !important;
+    font-weight: 700;
+    color: #1a5f8a;
+    letter-spacing: -0.3px;
+    margin: 0 0 4px;
+}
+#lumi-header p, #lumi-header em {
+    font-size: 0.95rem;
+    color: #5a8aaf;
+}
+
+/* ── Avatar ─────────────────────────────────────────────────── */
+#avatar-img img {
+    border-radius: 50% !important;
+    max-width: 180px !important;
+    max-height: 180px !important;
+    object-fit: cover !important;
+    margin: auto;
+    display: block;
+    border: 4px solid #b8ddf5;
+    box-shadow: 0 4px 18px rgba(100, 160, 220, 0.25);
+}
+#avatar-img {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+#avatar-video {
+    border-radius: 16px;
+    max-width: 260px;
+    margin: auto;
+    display: block;
+    box-shadow: 0 4px 18px rgba(100, 160, 220, 0.22);
+}
+.profile-desc {
+    font-size: 1.0rem !important;
+    color: #3a7dad !important;
+    text-align: center;
+    margin-top: 8px;
+    font-style: italic;
+}
+
+/* ── Tabs ────────────────────────────────────────────────────── */
+.tab-nav button {
+    font-size: 1.0rem !important;
+    font-weight: 600 !important;
+    color: #4a7fa0 !important;
+    border-radius: 30px 30px 0 0 !important;
+    padding: 10px 20px !important;
+    background: #eaf4fb !important;
+    border: none !important;
+    transition: all 0.2s ease;
+}
+.tab-nav button.selected, .tab-nav button:hover {
+    background: #ffffff !important;
+    color: #1a5f8a !important;
+    box-shadow: 0 -2px 8px rgba(100,160,220,0.15) !important;
+}
+
+/* ── Chatbot ─────────────────────────────────────────────────── */
+.message-wrap {
+    font-size: 1.1rem !important;
+    line-height: 1.6 !important;
+}
+.message.user .bubble-wrap {
+    background: #d6ecfa !important;
+    border-radius: 18px 18px 4px 18px !important;
+    color: #1a3a52 !important;
+}
+.message.bot .bubble-wrap {
+    background: #ffffff !important;
+    border-radius: 18px 18px 18px 4px !important;
+    color: #1a3a52 !important;
+    border: 1.5px solid #cce5f7 !important;
+    box-shadow: 0 2px 8px rgba(100,160,220,0.09) !important;
+}
+
+/* ── Input textbox ───────────────────────────────────────────── */
+textarea, input[type=text] {
+    font-size: 1.1rem !important;
+    border-radius: 14px !important;
+    border: 1.5px solid #b8d8f0 !important;
+    background: #ffffff !important;
+    color: #1a3a52 !important;
+    padding: 12px 16px !important;
+    transition: border-color 0.2s;
+}
+textarea:focus, input[type=text]:focus {
+    border-color: #5aabdf !important;
+    box-shadow: 0 0 0 3px rgba(90,171,223,0.15) !important;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.gr-button-primary, button.primary {
+    background: linear-gradient(135deg, #5aabdf 0%, #2a85c7 100%) !important;
+    color: #ffffff !important;
+    font-size: 1.1rem !important;
+    font-weight: 700 !important;
+    border-radius: 30px !important;
+    border: none !important;
+    padding: 12px 28px !important;
+    box-shadow: 0 3px 12px rgba(42,133,199,0.28) !important;
+    transition: transform 0.15s, box-shadow 0.15s;
+    cursor: pointer;
+}
+.gr-button-primary:hover, button.primary:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 5px 18px rgba(42,133,199,0.38) !important;
+}
+.gr-button-secondary, button.secondary {
+    background: #e8f4fd !important;
+    color: #1a5f8a !important;
+    font-size: 1.0rem !important;
+    border-radius: 20px !important;
+    border: 1.5px solid #b8d8f0 !important;
+}
+
+/* ── Audio/mic recorder ─────────────────────────────────────── */
+.audio-component .record-button {
+    background: linear-gradient(135deg, #5aabdf 0%, #2a85c7 100%) !important;
+    border-radius: 50% !important;
+    width: 56px !important;
+    height: 56px !important;
+    font-size: 1.4rem !important;
+}
+
+/* ── Status badge ────────────────────────────────────────────── */
+.status-badge {
+    font-size: 1.0rem !important;
+    color: #4a7fa0 !important;
+    text-align: center;
+    padding: 6px;
+    font-style: italic;
+}
+
+/* ── Radio group (profile selector) ─────────────────────────── */
+.gr-radio label {
+    font-size: 1.05rem !important;
+    padding: 10px 18px !important;
+    border-radius: 20px !important;
+    border: 1.5px solid #c5dfef !important;
+    background: #f0f8ff !important;
+    margin: 4px !important;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.gr-radio label:hover {
+    background: #d6edfb !important;
+    border-color: #7ac0e8 !important;
+}
+.gr-radio input[type=radio]:checked + span, .gr-radio label.selected {
+    background: linear-gradient(135deg, #5aabdf 0%, #2a85c7 100%) !important;
+    color: #ffffff !important;
+    border-color: #2a85c7 !important;
+}
+
+/* ── Panel / block styling ───────────────────────────────────── */
+.gr-panel, .gradio-box, .block {
+    border-radius: 18px !important;
+    border: 1px solid #daeeff !important;
+    background: #ffffff !important;
+}
+
+/* ── Examples ────────────────────────────────────────────────── */
+.examples-table td {
+    font-size: 1.0rem !important;
+    color: #2a6a98 !important;
+    background: #f0f8ff !important;
+    border-radius: 12px !important;
+    padding: 8px 14px !important;
+    border: 1px solid #c5dfef !important;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.examples-table td:hover {
+    background: #d6edfb !important;
+}
+
+/* ── Markdown text ───────────────────────────────────────────── */
+.gr-markdown, .md {
+    font-size: 1.05rem !important;
+    color: #1a3a52 !important;
+    line-height: 1.7 !important;
+}
+.gr-markdown h3 {
+    color: #1a5f8a !important;
+    font-size: 1.2rem !important;
+    border-bottom: 1.5px solid #c5dfef;
+    padding-bottom: 6px;
+    margin-bottom: 12px;
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+footer { display: none !important; }
 """
 
-with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS) as demo:
+_lumi_theme = gr.themes.Soft(
+    primary_hue=gr.themes.colors.sky,
+    secondary_hue=gr.themes.colors.blue,
+    neutral_hue=gr.themes.colors.slate,
+    font=[gr.themes.GoogleFont("Lato"), "Georgia", "serif"],
+    font_mono=["Courier New", "monospace"],
+).set(
+    body_background_fill="#f0f6ff",
+    background_fill_primary="#ffffff",
+    background_fill_secondary="#eaf4fb",
+    border_color_primary="#c5dfef",
+    color_accent_soft="#d6edfb",
+    button_primary_background_fill="*primary_500",
+    button_primary_text_color="white",
+    button_primary_background_fill_hover="*primary_600",
+    block_radius="18px",
+    block_shadow="0 2px 12px rgba(100,160,220,0.10)",
+    input_radius="14px",
+    input_border_color="#b8d8f0",
+    checkbox_border_radius="8px",
+    prose_text_size="*text_lg",
+    prose_header_text_weight="700",
+)
+
+with gr.Blocks(title="Lumi — Voice Companion", theme=_lumi_theme, css=CSS) as demo:
 
     # ── Persistent state ────────────────────────────────────────────────────
     profile_state = gr.State(DEFAULT_PROFILE_ID)
@@ -312,13 +554,13 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
     # ── Header ──────────────────────────────────────────────────────────────
     with gr.Row(elem_id="lumi-header"):
         gr.Markdown(
-            "# Lumi — AI Voice Companion\n"
-            "*Powered by AMD MI300X · Fine-tuned Qwen3-4B (SFT + GRPO)*"
+            f"# ☀️ Lumi — Your Voice Companion\n"
+            f"*Good day, {PATIENT_NAME}! I'm here whenever you'd like to chat.*"
         )
 
-    # ── Avatar area: static portrait (idle) + talking video (speaking) ──────
+    # ── Avatar area: portrait (idle) + talking video (speaking) ─────────────
     with gr.Row():
-        with gr.Column(scale=1):
+        with gr.Column(scale=1, min_width=220):
             avatar_img = gr.Image(
                 value=_load_portrait(DEFAULT_PROFILE_ID) or AVATAR_IMAGES["smile"],
                 label="",
@@ -327,8 +569,8 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
                 interactive=False,
                 show_download_button=False,
                 show_fullscreen_button=False,
-                width=200,
-                height=200,
+                width=180,
+                height=180,
                 visible=True,
             )
             avatar_video = gr.Video(
@@ -337,8 +579,8 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
                 elem_id="avatar-video",
                 autoplay=True,
                 visible=False,
-                width=280,
-                height=280,
+                width=260,
+                height=260,
             )
             profile_desc_md = gr.Markdown(
                 f"**{get_profile(DEFAULT_PROFILE_ID)['display_name']}** — "
@@ -346,18 +588,19 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
                 elem_classes=["profile-desc"],
             )
 
-    # ── Tabs ────────────────────────────────────────────────────────────────
+    # ── Tabs ─────────────────────────────────────────────────────────────────
     with gr.Tabs():
 
-        # Tab 1 — Text Chat ──────────────────────────────────────────────────
-        with gr.Tab("💬 Text Chat"):
-            chatbot1 = gr.Chatbot(height=400, label="Conversation", type="messages",
-                                   show_copy_button=False, show_share_button=False)
+        # Tab 1 — Chat ────────────────────────────────────────────────────────
+        with gr.Tab("💬 Chat"):
+            chatbot1 = gr.Chatbot(height=380, label="", type="messages",
+                                   show_copy_button=False, show_share_button=False,
+                                   bubble_full_width=False)
             with gr.Row():
                 msg1  = gr.Textbox(
-                    placeholder="Type a message to Lumi…", scale=7, container=False
+                    placeholder="Type something to Lumi…", scale=7, container=False, lines=1
                 )
-                send1 = gr.Button("Send", scale=1, variant="primary")
+                send1 = gr.Button("Send ➤", scale=1, variant="primary")
 
             gr.Examples(
                 examples=[
@@ -367,6 +610,7 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
                     "Tell me something cheerful.",
                 ],
                 inputs=msg1,
+                label="💡 Try saying...",
             )
 
             send1.click(
@@ -378,14 +622,15 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
                 [chatbot1, avatar_img],
             ).then(lambda: "", None, msg1)
 
-        # Tab 2 — Voice Chat (record → Send) ──────────────────────────────────
-        with gr.Tab("🎤 Voice Chat"):
+        # Tab 2 — Voice Chat ────────────────────────────────────
+        with gr.Tab("🎤 Voice"):
             gr.Markdown(
-                "**Record your message, then click Send.** "
-                "Lumi will transcribe, think, and speak back."
+                "🎤 **Record your message, then click Send.** "
+                "Lumi will listen, think, and speak back."
             )
-            chatbot2 = gr.Chatbot(height=280, label="Conversation", type="messages",
-                                   show_copy_button=False, show_share_button=False)
+            chatbot2 = gr.Chatbot(height=260, label="", type="messages",
+                                   show_copy_button=False, show_share_button=False,
+                                   bubble_full_width=False)
 
             with gr.Row():
                 mic_input = gr.Audio(
