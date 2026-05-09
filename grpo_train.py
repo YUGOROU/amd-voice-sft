@@ -144,6 +144,7 @@ for stage_idx, (reward_funcs, reward_weights, n_epochs, desc) in enumerate(STAGE
         logging_steps=5,
         save_steps=50,
         use_vllm=False,
+        num_generations=4,
         report_to="none",
         reward_weights=reward_weights,
     )
