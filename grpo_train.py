@@ -71,6 +71,9 @@ login(token=HF_TOKEN)
 
 
 
+# ROCm: メインスレッドで先にGPUを初期化しないとローダースレッドがCUDA initに失敗する
+torch.cuda.init()
+
 # ROCm: cudart() が存在しないため caching_allocator_warmup をno-opにパッチ
 try:
     torch.cuda.cudart()
@@ -82,7 +85,7 @@ print(f"Loading SFT model: {SFT_MODEL_REPO}")
 model = AutoModelForCausalLM.from_pretrained(
     SFT_MODEL_REPO,
     attn_implementation="sdpa",
-    torch_dtype=torch.bfloat16,
+    dtype=torch.bfloat16,
     device_map={"": "cuda:0"},
     token=HF_TOKEN,
 )
