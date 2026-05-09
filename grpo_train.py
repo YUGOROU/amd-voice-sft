@@ -16,9 +16,7 @@ Prerequisites:
   2. export CROF_API_KEY=...  HF_TOKEN=...
 """
 import os
-import time
 import torch
-import requests
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import GRPOTrainer, GRPOConfig
 from peft import LoraConfig, get_peft_model
@@ -66,21 +64,6 @@ assert os.getenv("CROF_API_KEY"), "Set CROF_API_KEY environment variable."
 login(token=HF_TOKEN)
 
 
-def wait_for_vllm(url: str, timeout: int = 120):
-    print(f"Waiting for vLLM server at {url} ...")
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            if requests.get(f"{url}/health", timeout=5).status_code == 200:
-                print("vLLM server ready.")
-                return
-        except Exception:
-            pass
-        time.sleep(5)
-    raise RuntimeError(f"vLLM server at {url} did not become ready in {timeout}s")
-
-
-wait_for_vllm(VLLM_URL)
 
 print(f"Loading SFT model: {SFT_MODEL_REPO}")
 model = AutoModelForCausalLM.from_pretrained(
@@ -145,10 +128,7 @@ for stage_idx, (reward_funcs, reward_weights, n_epochs, desc) in enumerate(STAGE
         lr_scheduler_type="cosine",
         logging_steps=5,
         save_steps=50,
-        use_vllm=True,
-        vllm_server_host="localhost",
-        vllm_server_port=8000,
-        deepspeed="ds_config_grpo.json",
+        use_vllm=False,
         report_to="none",
         reward_weights=reward_weights,
     )
