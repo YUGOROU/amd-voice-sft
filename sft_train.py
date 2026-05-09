@@ -106,7 +106,6 @@ sft_config = SFTConfig(
     warmup_steps=50,
     logging_steps=10,
     save_steps=100,
-    deepspeed="ds_config_sft.json",
     dataset_text_field="text",
     report_to="none",
 )
