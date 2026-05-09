@@ -9,7 +9,6 @@ Set STT_MODE env var to "local" or "remote". Defaults to "remote" in HF Space.
 """
 
 import os
-import tempfile
 from pathlib import Path
 
 STT_MODE     = os.getenv("STT_MODE", "remote")
@@ -22,11 +21,17 @@ WHISPER_SIZE = os.getenv("WHISPER_SIZE", "base")   # tiny/base/small/medium
 # ---------------------------------------------------------------------------
 
 def _transcribe_remote(audio_path: str) -> str:
-    from openai import OpenAI
-    client = OpenAI(base_url=STT_URL.rstrip("/"), api_key="not-required")
+    import httpx
+    url = f"{STT_URL.rstrip('/')}/v1/audio/transcriptions"
     with open(audio_path, "rb") as f:
-        result = client.audio.transcriptions.create(model="whisper-1", file=f)
-    return result.text.strip()
+        r = httpx.post(
+            url,
+            files={"file": (os.path.basename(audio_path), f, "audio/wav")},
+            data={"model": "whisper-1"},
+            timeout=30.0,
+        )
+    r.raise_for_status()
+    return r.json()["text"].strip()
 
 
 # ---------------------------------------------------------------------------

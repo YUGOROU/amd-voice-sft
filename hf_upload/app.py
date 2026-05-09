@@ -151,12 +151,12 @@ def text_chat(message: str, history: list[dict]):
 def voice_chat(audio_path: str | None, history: list[dict]):
     """Mode 2 — mic in → STT → LLM → TTS → avatar."""
     if not audio_path:
-        return history, None, ""
+        return history, None, "", AVATAR_IMAGES["smile"]
 
     t0 = time.time()
     user_text = transcribe(audio_path) if STT_URL else "[STT not configured]"
     if not user_text:
-        return history, None, ""
+        return history, None, "", AVATAR_IMAGES["smile"]
 
     is_scam, deflection = check_and_deflect(user_text)
     if is_scam:
