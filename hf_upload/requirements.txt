@@ -5,3 +5,4 @@ sentence-transformers>=3.0.0
 numpy>=1.26.0
 python-dotenv
 audioop-lts
+Pillow>=10.0.0

@@ -13,6 +13,7 @@ Environment variables (set as HF Space Secrets):
 
 import os
 import time
+from PIL import Image
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -42,7 +43,7 @@ llm = OpenAI(base_url=VLLM_BASE_URL, api_key=os.getenv("OPENAI_API_KEY", "not-re
 # Avatar image paths (relative to this file)
 AVATAR_DIR = os.path.join(os.path.dirname(__file__), "avatar")
 AVATAR_IMAGES = {
-    tag: os.path.join(AVATAR_DIR, f"avatar_{tag}.png")
+    tag: Image.open(os.path.join(AVATAR_DIR, f"avatar_{tag}.png"))
     for tag in ("smile", "nod", "concerned", "gentle", "laugh")
 }
 
