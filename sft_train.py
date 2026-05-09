@@ -106,7 +106,6 @@ sft_config = SFTConfig(
     logging_steps=10,
     save_steps=100,
     deepspeed="ds_config_sft.json",
-    max_seq_length=2048,
     dataset_text_field="text",
     report_to="none",
 )
@@ -116,6 +115,7 @@ trainer = SFTTrainer(
     args=sft_config,
     train_dataset=dataset,
     tokenizer=tokenizer,
+    max_seq_length=2048,
 )
 
 trainer.train()
