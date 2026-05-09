@@ -1,6 +1,7 @@
 import os
 import re
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 
 CROF_API_KEY = os.getenv("CROF_API_KEY", "")
@@ -64,25 +65,30 @@ _CONSTITUTIONAL_CRITERIA = """Evaluate on:
 Deduct heavily for clinical terms, long sentences, or distressing content."""
 
 
+def _constitutional_single(final: str) -> float:
+    try:
+        resp = crof_client.chat.completions.create(
+            model="deepseek-v4-flash",
+            messages=[
+                {"role": "system", "content": _CONSTITUTIONAL_SYSTEM},
+                {"role": "user",   "content": f"{_CONSTITUTIONAL_CRITERIA}\n\nResponse:\n{final}"},
+            ],
+            temperature=0.1,
+            max_tokens=50,
+            extra_body={"reasoning_effort": "none"},
+        )
+        return float(json.loads(resp.choices[0].message.content).get("score", 0.0))
+    except Exception:
+        return 0.0
+
+
 def constitutional_reward(completions, prompts=None, **kwargs):
-    scores = []
-    for completion in completions:
-        final = _extract_final(_get_text(completion))
-        try:
-            resp = crof_client.chat.completions.create(
-                model="deepseek-v4-flash",
-                messages=[
-                    {"role": "system", "content": _CONSTITUTIONAL_SYSTEM},
-                    {"role": "user",   "content": f"{_CONSTITUTIONAL_CRITERIA}\n\nResponse:\n{final}"},
-                ],
-                temperature=0.1,
-                max_tokens=50,
-                extra_body={"reasoning_effort": "none"},
-            )
-            result = json.loads(resp.choices[0].message.content)
-            scores.append(float(result.get("score", 0.0)))
-        except Exception:
-            scores.append(0.0)
+    finals = [_extract_final(_get_text(c)) for c in completions]
+    with ThreadPoolExecutor(max_workers=len(finals)) as ex:
+        futures = {ex.submit(_constitutional_single, f): i for i, f in enumerate(finals)}
+        scores = [0.0] * len(finals)
+        for fut in as_completed(futures):
+            scores[futures[fut]] = fut.result()
     return scores
 
 
@@ -100,25 +106,30 @@ _CHARACTER_CRITERIA = """Evaluate:
 - Feels like a companion, not a caregiver or therapist (0.3)"""
 
 
+def _character_single(final: str) -> float:
+    try:
+        resp = crof_client.chat.completions.create(
+            model="deepseek-v4-flash",
+            messages=[
+                {"role": "system", "content": _CHARACTER_SYSTEM},
+                {"role": "user",   "content": f"{_CHARACTER_CRITERIA}\n\nResponse:\n{final}"},
+            ],
+            temperature=0.1,
+            max_tokens=50,
+            extra_body={"reasoning_effort": "none"},
+        )
+        return float(json.loads(resp.choices[0].message.content).get("score", 0.0))
+    except Exception:
+        return 0.0
+
+
 def character_reward(completions, **kwargs):
-    scores = []
-    for completion in completions:
-        final = _extract_final(_get_text(completion))
-        try:
-            resp = crof_client.chat.completions.create(
-                model="deepseek-v4-flash",
-                messages=[
-                    {"role": "system", "content": _CHARACTER_SYSTEM},
-                    {"role": "user",   "content": f"{_CHARACTER_CRITERIA}\n\nResponse:\n{final}"},
-                ],
-                temperature=0.1,
-                max_tokens=50,
-                extra_body={"reasoning_effort": "none"},
-            )
-            result = json.loads(resp.choices[0].message.content)
-            scores.append(float(result.get("score", 0.0)))
-        except Exception:
-            scores.append(0.0)
+    finals = [_extract_final(_get_text(c)) for c in completions]
+    with ThreadPoolExecutor(max_workers=len(finals)) as ex:
+        futures = {ex.submit(_character_single, f): i for i, f in enumerate(finals)}
+        scores = [0.0] * len(finals)
+        for fut in as_completed(futures):
+            scores[futures[fut]] = fut.result()
     return scores
 
 
@@ -149,36 +160,42 @@ _EQ_JUDGE_SYSTEM = (
 )
 
 
+def _eq_single(final: str, q: dict) -> float:
+    try:
+        prompt = (
+            f"Scenario: {q['q']}\n"
+            f"Correct approach: {q['correct']}\n"
+            f"Wrong approaches: {', '.join(q['wrong'])}\n\n"
+            f"Lumi's response: {final}\n\n"
+            "Does Lumi's response align with the correct approach?"
+        )
+        resp = crof_client.chat.completions.create(
+            model="deepseek-v4-flash",
+            messages=[
+                {"role": "system", "content": _EQ_JUDGE_SYSTEM},
+                {"role": "user",   "content": prompt},
+            ],
+            temperature=0.1,
+            max_tokens=50,
+            extra_body={"reasoning_effort": "none"},
+        )
+        return float(json.loads(resp.choices[0].message.content).get("score", 0.0))
+    except Exception:
+        return 0.0
+
+
 def eq_bench_reward(completions, **kwargs):
-    scores = []
-    for completion in completions:
-        final = _extract_final(_get_text(completion))
-        total = 0.0
-        for q in _EQ_PROXY_QUESTIONS:
-            try:
-                prompt = (
-                    f"Scenario: {q['q']}\n"
-                    f"Correct approach: {q['correct']}\n"
-                    f"Wrong approaches: {', '.join(q['wrong'])}\n\n"
-                    f"Lumi's response: {final}\n\n"
-                    "Does Lumi's response align with the correct approach?"
-                )
-                resp = crof_client.chat.completions.create(
-                    model="deepseek-v4-flash",
-                    messages=[
-                        {"role": "system", "content": _EQ_JUDGE_SYSTEM},
-                        {"role": "user",   "content": prompt},
-                    ],
-                    temperature=0.1,
-                    max_tokens=50,
-                    extra_body={"reasoning_effort": "none"},
-                )
-                result = json.loads(resp.choices[0].message.content)
-                total += float(result.get("score", 0.0))
-            except Exception:
-                pass
-        scores.append(total / len(_EQ_PROXY_QUESTIONS))
-    return scores
+    finals = [_extract_final(_get_text(c)) for c in completions]
+    tasks = [(i, f, q) for i, f in enumerate(finals) for q in _EQ_PROXY_QUESTIONS]
+    scores = [0.0] * len(finals)
+    with ThreadPoolExecutor(max_workers=len(tasks)) as ex:
+        futures = {ex.submit(_eq_single, f, q): (i, q) for i, f, q in tasks}
+        counts = [0] * len(finals)
+        for fut in as_completed(futures):
+            i, _ = futures[fut]
+            scores[i] += fut.result()
+            counts[i] += 1
+    return [s / counts[i] for i, s in enumerate(scores)]
 
 
 # ────────────────────────────────────────────

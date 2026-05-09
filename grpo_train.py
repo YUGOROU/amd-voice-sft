@@ -58,12 +58,14 @@ def apply_lora_gemma4(model, lora_cfg):
     print(f"Restored {len(wrappers)} Gemma4ClippableLinear wrappers with LoRA inside")
     return peft_model
 
-SFT_MODEL_REPO = os.getenv("SFT_MODEL", "YUGOROU/lumi-sft")
-HF_DATASET     = "YUGOROU/lumi-data"
-DATA_CONFIG    = "filtered"
-OUTPUT_REPO    = "YUGOROU/lumi-grpo"
-HF_TOKEN       = os.getenv("HF_TOKEN", "")
-VLLM_URL       = os.getenv("VLLM_URL", "http://localhost:8000")
+SFT_MODEL_REPO  = os.getenv("SFT_MODEL", "YUGOROU/lumi-sft")
+HF_DATASET      = "YUGOROU/lumi-data"
+DATA_CONFIG     = "filtered"
+OUTPUT_REPO     = "YUGOROU/lumi-grpo"
+HF_TOKEN        = os.getenv("HF_TOKEN", "")
+# 途中再開: START_STAGE=2 RESUME_CHECKPOINT=./lumi-grpo-stage2/checkpoint-100
+START_STAGE     = int(os.getenv("START_STAGE", "1"))
+RESUME_CHECKPOINT = os.getenv("RESUME_CHECKPOINT", None)
 
 assert HF_TOKEN,             "Set HF_TOKEN environment variable."
 assert os.getenv("CROF_API_KEY"), "Set CROF_API_KEY environment variable."
@@ -76,7 +78,11 @@ login(token=HF_TOKEN)
 import transformers.modeling_utils as _mu
 _mu.caching_allocator_warmup = lambda *a, **kw: None
 
-print(f"Loading SFT model: {SFT_MODEL_REPO}")
+import transformers.modeling_utils as _mu
+_mu.caching_allocator_warmup = lambda *a, **kw: None
+
+base_source = RESUME_CHECKPOINT if RESUME_CHECKPOINT else SFT_MODEL_REPO
+print(f"Loading base model: {base_source}")
 model = AutoModelForCausalLM.from_pretrained(
     SFT_MODEL_REPO,
     attn_implementation="sdpa",
@@ -88,7 +94,6 @@ model.config.use_cache = False
 print("Moving model to cuda:0 ...")
 model = model.to("cuda:0")
 
-# LoRA必須: 31B full fine-tuneはoptimizer statesで192GB超過する
 lora_config = LoraConfig(
     r=16,
     lora_alpha=32,
@@ -98,7 +103,13 @@ lora_config = LoraConfig(
     bias="none",
     task_type="CAUSAL_LM",
 )
-model = apply_lora_gemma4(model, lora_config)
+
+if RESUME_CHECKPOINT:
+    from peft import PeftModel
+    print(f"Loading LoRA from checkpoint: {RESUME_CHECKPOINT}")
+    model = PeftModel.from_pretrained(model, RESUME_CHECKPOINT, is_trainable=True)
+else:
+    model = apply_lora_gemma4(model, lora_config)
 model.print_trainable_parameters()
 
 tokenizer = AutoTokenizer.from_pretrained(SFT_MODEL_REPO, token=HF_TOKEN)
@@ -127,6 +138,9 @@ dataset = dataset.shuffle(seed=42).select(range(2000))
 checkpoint_dir = "./lumi-grpo-stage"
 
 for stage_idx, (reward_funcs, reward_weights, n_epochs, desc) in enumerate(STAGE_CONFIGS, 1):
+    if stage_idx < START_STAGE:
+        print(f"Skipping Stage {stage_idx} (START_STAGE={START_STAGE})")
+        continue
     stage_output = f"{checkpoint_dir}{stage_idx}"
     print(f"\n{'='*60}")
     print(f"  {desc}")
@@ -157,7 +171,8 @@ for stage_idx, (reward_funcs, reward_weights, n_epochs, desc) in enumerate(STAGE
         processing_class=tokenizer,
         reward_funcs=reward_funcs,
     )
-    trainer.train()
+    resume = RESUME_CHECKPOINT if (stage_idx == START_STAGE and RESUME_CHECKPOINT) else None
+    trainer.train(resume_from_checkpoint=resume)
 
     # 次ステージへモデルを引き継ぐ
     model = trainer.model
