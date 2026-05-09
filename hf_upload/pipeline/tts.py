@@ -31,11 +31,11 @@ def _synthesize_remote(text: str) -> str | None:
     try:
         r = httpx.post(
             f"{TTS_URL.rstrip('/')}/v1/audio/speech",
-            json={"model": "tts-1", "input": text, "response_format": "wav"},
+            json={"model": "tts-1", "input": text, "response_format": "mp3"},
             timeout=30.0,
         )
         r.raise_for_status()
-        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
         tmp.write(r.content)
         tmp.close()
         return tmp.name
