@@ -369,6 +369,7 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
                 streaming=True,
                 type="numpy",
                 label="🎙 Microphone",
+                waveform_options={"show_recording_waveform": False},
             )
             audio_live_out = gr.Audio(label="Lumi's voice", autoplay=True)
             status_live = gr.Markdown("🎙 Listening…", elem_classes=["status-badge"])
