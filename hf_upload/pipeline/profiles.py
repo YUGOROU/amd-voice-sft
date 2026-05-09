@@ -10,7 +10,7 @@ PROFILES: dict[str, dict] = {
         "id":           "marcus",
         "display_name": "Marcus",
         "label":        "Marcus · Young Black man, 25",
-        "portrait":     "marcus.jpg",
+        "portrait":     "marcus.png",
         "voice":        "en-US-DavisNeural",
         "rate":         "+5%",
         "pitch":        "-2Hz",
