@@ -76,6 +76,7 @@ def _constitutional_single(final: str) -> float:
             temperature=0.1,
             max_tokens=50,
             extra_body={"reasoning_effort": "none"},
+            timeout=15.0,
         )
         return float(json.loads(resp.choices[0].message.content).get("score", 0.0))
     except Exception:
@@ -117,6 +118,7 @@ def _character_single(final: str) -> float:
             temperature=0.1,
             max_tokens=50,
             extra_body={"reasoning_effort": "none"},
+            timeout=15.0,
         )
         return float(json.loads(resp.choices[0].message.content).get("score", 0.0))
     except Exception:
@@ -178,6 +180,7 @@ def _eq_single(final: str, q: dict) -> float:
             temperature=0.1,
             max_tokens=50,
             extra_body={"reasoning_effort": "none"},
+            timeout=15.0,
         )
         return float(json.loads(resp.choices[0].message.content).get("score", 0.0))
     except Exception:
