@@ -1,0 +1,274 @@
+:root {
+  --primary: #1a5f8a;
+  --bg-color: #202124; /* Dark background like Google Meet */
+  --surface: #303134;
+  --surface-hover: #3c4043;
+  --text-main: #e8eaed;
+  --text-muted: #9aa0a6;
+  --accent: #8ab4f8;
+  --danger: #ea4335;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  position: relative;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 320px;
+  background-color: var(--surface);
+  height: 100%;
+  border-right: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: absolute;
+  z-index: 10;
+  left: 0;
+  top: 0;
+}
+
+.sidebar.closed {
+  transform: translateX(-100%);
+}
+
+.sidebar-header {
+  padding: 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-header h2 {
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.sidebar-content {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.widget {
+  background-color: rgba(255,255,255,0.05);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.widget h3 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+textarea {
+  width: 100%;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 120px;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Checkboxes */
+.reminder-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.reminder-item:last-child {
+  margin-bottom: 0;
+}
+
+.reminder-item:hover {
+  background-color: var(--surface-hover);
+}
+
+.reminder-item input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.reminder-item span {
+  font-size: 15px;
+}
+
+/* Appointments */
+.appointment {
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.appointment:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.apt-time {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 14px;
+  min-width: 75px;
+}
+
+.apt-details {
+  font-size: 15px;
+}
+
+/* Main Area */
+.main-area {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  transition: padding-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  height: 100%;
+}
+
+.main-area.sidebar-open {
+  padding-left: 344px; /* 320px sidebar + 24px gap */
+}
+
+/* Video Container */
+.video-container {
+  flex: 1;
+  background-color: #000;
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Controls Overlay */
+.controls-overlay {
+  position: absolute;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 16px;
+  background-color: rgba(32, 33, 36, 0.6);
+  padding: 12px;
+  border-radius: 100px;
+  backdrop-filter: blur(10px);
+}
+
+.control-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background-color: var(--surface-hover);
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.control-btn:hover {
+  background-color: #4a4f53;
+}
+
+.control-btn.active {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.control-btn.mic-on {
+  background-color: var(--accent);
+  color: #202124;
+}
+
+.control-btn.danger {
+  background-color: var(--danger);
+  color: white;
+}
+
+.control-btn.danger:hover {
+  background-color: #f25547;
+}
+
+/* Top bar */
+.top-bar {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  z-index: 20;
+}
+
+.toggle-sidebar-btn {
+  background-color: rgba(32, 33, 36, 0.6);
+  border: none;
+  color: white;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: background-color 0.2s;
+}
+
+.toggle-sidebar-btn:hover {
+  background-color: rgba(32, 33, 36, 0.9);
+}
