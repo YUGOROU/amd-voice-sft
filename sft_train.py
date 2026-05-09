@@ -119,7 +119,7 @@ trainer = SFTTrainer(
     processing_class=tokenizer,
 )
 
-trainer.train()
+trainer.train(resume_from_checkpoint=True)
 
 # LoRAをベースモデルにマージしてから保存
 print("Merging LoRA weights ...")
