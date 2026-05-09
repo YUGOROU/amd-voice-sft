@@ -118,6 +118,8 @@ def extract_prompt(ex):
     }
 
 dataset = raw.map(extract_prompt, remove_columns=raw.column_names)
+# GRPO は全件不要。多様性を保ちつつ 2,000 件に絞る
+dataset = dataset.shuffle(seed=42).select(range(2000))
 
 # ────────────────────────────────────────────
 # 段階的GRPO (Stage 1 → 4)
@@ -133,9 +135,9 @@ for stage_idx, (reward_funcs, reward_weights, n_epochs, desc) in enumerate(STAGE
 
     grpo_config = GRPOConfig(
         output_dir=stage_output,
-        num_train_epochs=n_epochs,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=4,
+        num_train_epochs=1,
+        per_device_train_batch_size=6,
+        gradient_accumulation_steps=2,
         bf16=True,
         learning_rate=5e-6,
         lr_scheduler_type="cosine",
