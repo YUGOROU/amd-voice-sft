@@ -77,6 +77,7 @@ model.print_trainable_parameters()
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, token=HF_TOKEN)
 tokenizer.pad_token = tokenizer.eos_token
+tokenizer.model_max_length = 2048
 
 # messages列(list[dict])をapply_chat_templateで文字列に変換
 raw = load_dataset(HF_DATASET, DATA_CONFIG, split="train", token=HF_TOKEN)
@@ -102,7 +103,7 @@ sft_config = SFTConfig(
     bf16=True,
     learning_rate=2e-4,
     lr_scheduler_type="cosine",
-    warmup_ratio=0.05,
+    warmup_steps=50,
     logging_steps=10,
     save_steps=100,
     deepspeed="ds_config_sft.json",
@@ -114,8 +115,7 @@ trainer = SFTTrainer(
     model=model,
     args=sft_config,
     train_dataset=dataset,
-    tokenizer=tokenizer,
-    max_seq_length=2048,
+    processing_class=tokenizer,
 )
 
 trainer.train()
