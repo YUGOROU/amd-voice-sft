@@ -64,7 +64,7 @@ AVATAR_IMAGES = {
     for tag in ("smile", "nod", "concerned", "gentle", "laugh")
 }
 
-# VAD tuning (live streaming)
+# VAD tuning (streaming mode — kept for reference)
 SILENCE_THRESHOLD = 0.015
 SILENCE_CHUNKS    = 6
 MIN_SPEECH_CHUNKS = 3
@@ -171,96 +171,64 @@ def text_chat(message: str, history: list[dict], profile_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Gradio handlers — Live Voice (streaming VAD)
+# Gradio handlers — Voice Chat (record → submit)
 # ---------------------------------------------------------------------------
 
-_LIVE_STATE_DEFAULT: dict = {
-    "buffer":        [],
-    "sr":            16000,
-    "silent_chunks": 0,
-    "is_speaking":   False,
-    "history":       [],
-    "profile_id":    DEFAULT_PROFILE_ID,
-}
-
-
-def _rms(audio: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((audio.astype(np.float32) / 32768.0) ** 2)))
-
-
-def _save_wav(chunks: list[np.ndarray], sr: int) -> str:
-    audio = np.concatenate(chunks)
-    tmp   = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    sf.write(tmp.name, audio, sr)
+def _save_wav_np(audio_tuple) -> str | None:
+    """Save (sr, numpy_array) tuple to a temp WAV file. Handles float32 and int16."""
+    if audio_tuple is None:
+        return None
+    sr, audio = audio_tuple
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    # Gradio 5.x may give float32 [-1,1] or int16 — normalise to float32 for soundfile
+    if audio.dtype == np.int16:
+        audio = audio.astype(np.float32) / 32768.0
+    elif audio.dtype != np.float32:
+        audio = audio.astype(np.float32)
+    sf.write(tmp.name, audio, int(sr))
     tmp.close()
     return tmp.name
 
 
-def live_stream(chunk, state: dict, profile_id: str):
+def voice_submit(audio_tuple, history: list[dict], profile_id: str):
     """
-    Called on every ~250 ms audio chunk.
-    Returns: (new_state, video_path, audio_path, chatbot, status, avatar_img)
+    Called when the user finishes recording and clicks Send (or stops recording).
+    Returns: (chatbot, audio_out, video_out, avatar_img, status)
     """
-    state = dict(state)
-    state["profile_id"] = profile_id
-    no_change = (state, None, None, state["history"], "🎙 Listening…", AVATAR_IMAGES["smile"])
+    no_change = (history, None, None, AVATAR_IMAGES["smile"], "🎤 Record then click Send")
 
-    if chunk is None:
+    if audio_tuple is None:
         return no_change
 
-    sr, audio   = chunk
-    state["sr"] = int(sr)
-    energy      = _rms(audio)
-    state["buffer"] = state["buffer"] + [audio]
-
-    if energy > SILENCE_THRESHOLD:
-        state["is_speaking"]   = True
-        state["silent_chunks"] = 0
-        return state, None, None, state["history"], "🗣 Listening…", AVATAR_IMAGES["nod"]
-
-    state["silent_chunks"] = state["silent_chunks"] + 1
-
-    if not state["is_speaking"] or state["silent_chunks"] < SILENCE_CHUNKS:
-        return state, None, None, state["history"], "🎙 Listening…", AVATAR_IMAGES["smile"]
-
-    # ── End of utterance ────────────────────────────────────────────────────
-    speech_chunks = state["buffer"][: -state["silent_chunks"]]
-    state["buffer"]        = []
-    state["silent_chunks"] = 0
-    state["is_speaking"]   = False
-
-    if len(speech_chunks) < MIN_SPEECH_CHUNKS:
-        return state, None, None, state["history"], "🎙 Listening…", AVATAR_IMAGES["smile"]
-
     # STT
-    wav_path  = _save_wav(speech_chunks, state["sr"])
+    wav_path = _save_wav_np(audio_tuple)
     user_text = ""
     try:
-        user_text = transcribe(wav_path) if STT_URL else "[STT not configured]"
+        user_text = transcribe(wav_path) if STT_URL else "[STT not configured — set STT_URL secret]"
     except Exception as e:
         print(f"[STT] {e}")
     finally:
-        try:
-            os.unlink(wav_path)
-        except OSError:
-            pass
+        if wav_path:
+            try:
+                os.unlink(wav_path)
+            except OSError:
+                pass
 
     if not user_text:
-        return state, None, None, state["history"], "🎙 Listening…", AVATAR_IMAGES["smile"]
+        return history, None, None, AVATAR_IMAGES["smile"], "❓ Couldn't hear that — try again"
 
     # Scam check
     is_scam, deflection = check_and_deflect(user_text)
     if is_scam:
         audio_path, video_path = _tts_and_video(deflection, profile_id)
-        new_history = state["history"] + [
+        new_history = history + [
             {"role": "user",      "content": f"🎤 {user_text}"},
             {"role": "assistant", "content": deflection},
         ]
-        state["history"] = new_history
-        return state, video_path, audio_path, new_history, "🎙 Listening…", AVATAR_IMAGES["gentle"]
+        return new_history, audio_path, video_path, AVATAR_IMAGES["gentle"], "🎤 Record then click Send"
 
-    # LLM + TTS + SadTalker
-    messages      = _build_messages(state["history"]) + [{"role": "user", "content": user_text}]
+    # LLM + TTS + (optionally) SadTalker
+    messages = _build_messages(history) + [{"role": "user", "content": user_text}]
     response_text = ""
     audio_path    = None
     video_path    = None
@@ -275,18 +243,17 @@ def live_stream(chunk, state: dict, profile_id: str):
 
         facts = extract_facts_from_response(raw)
         if facts:
-            save_session(PATIENT_ID, facts, "unknown", "unknown", "Live voice session")
+            save_session(PATIENT_ID, facts, "unknown", "unknown", "Voice session")
     except Exception as e:
         print(f"[LLM/TTS] {e}")
-        response_text = "I'm sorry, I had a little trouble just then. Could you say that again?"
+        response_text = "I'm sorry, I had a little trouble. Could you try again?"
         audio_path, video_path = _tts_and_video(response_text, profile_id)
 
-    new_history = state["history"] + [
+    new_history = history + [
         {"role": "user",      "content": f"🎤 {user_text}"},
         {"role": "assistant", "content": response_text},
     ]
-    state["history"] = new_history
-    return state, video_path, audio_path, new_history, "🎙 Listening…", avatar
+    return new_history, audio_path, video_path, avatar, "🎤 Record then click Send"
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +325,8 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
                 show_label=False,
                 elem_id="avatar-img",
                 interactive=False,
+                show_download_button=False,
+                show_fullscreen_button=False,
                 width=200,
                 height=200,
                 visible=True,
@@ -382,7 +351,8 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
 
         # Tab 1 — Text Chat ──────────────────────────────────────────────────
         with gr.Tab("💬 Text Chat"):
-            chatbot1 = gr.Chatbot(height=400, label="Conversation", type="messages")
+            chatbot1 = gr.Chatbot(height=400, label="Conversation", type="messages",
+                                   show_copy_button=False, show_share_button=False)
             with gr.Row():
                 msg1  = gr.Textbox(
                     placeholder="Type a message to Lumi…", scale=7, container=False
@@ -408,36 +378,34 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
                 [chatbot1, avatar_img],
             ).then(lambda: "", None, msg1)
 
-        # Tab 2 — Live Voice Chat ────────────────────────────────────────────
-        with gr.Tab("🎤 Live Voice Chat"):
+        # Tab 2 — Voice Chat (record → Send) ──────────────────────────────────
+        with gr.Tab("🎤 Voice Chat"):
             gr.Markdown(
-                "**Click the microphone button once to start.** "
-                "Speak naturally — Lumi listens and responds when you pause. "
-                "Click again to stop."
+                "**Record your message, then click Send.** "
+                "Lumi will transcribe, think, and speak back."
             )
-            chatbot2 = gr.Chatbot(height=280, label="Conversation", type="messages")
+            chatbot2 = gr.Chatbot(height=280, label="Conversation", type="messages",
+                                   show_copy_button=False, show_share_button=False)
 
-            mic_live = gr.Audio(
-                sources=["microphone"],
-                streaming=True,
-                type="numpy",
-                label="🎙 Microphone",
-                waveform_options={"show_recording_waveform": False},
-            )
+            with gr.Row():
+                mic_input = gr.Audio(
+                    sources=["microphone"],
+                    type="numpy",
+                    label="🎙 Record your message",
+                )
+                voice_send = gr.Button("🎤 Send", variant="primary", scale=0)
+
             audio_live_out = gr.Audio(label="Lumi's voice", autoplay=True, visible=True)
             video_live_out = gr.Video(
                 label="", show_label=False, autoplay=True,
                 elem_id="avatar-video", visible=False,
             )
-            status_live = gr.Markdown("🎙 Listening…", elem_classes=["status-badge"])
+            status_live = gr.Markdown("🎤 Record then click Send", elem_classes=["status-badge"])
 
-            live_state = gr.State(dict(_LIVE_STATE_DEFAULT))
-
-            mic_live.stream(
-                live_stream,
-                inputs=[mic_live, live_state, profile_state],
-                outputs=[live_state, video_live_out, audio_live_out,
-                         chatbot2, status_live, avatar_img],
+            voice_send.click(
+                voice_submit,
+                inputs=[mic_input, chatbot2, profile_state],
+                outputs=[chatbot2, audio_live_out, video_live_out, avatar_img, status_live],
             )
 
             # When a video comes back: hide static avatar, show video
@@ -467,9 +435,8 @@ with gr.Blocks(title="Lumi — Voice Companion", theme=gr.themes.Soft(), css=CSS
                 f"{get_profile(DEFAULT_PROFILE_ID)['description']}",
             )
             gr.Markdown(
-                "> **Note:** Portrait images must be placed in `portraits/<id>.jpg` "
-                "for the talking head animation to work. "
-                "See `pipeline/profiles.py` for the full list of IDs.",
+                "> **Tip:** The selected profile's voice and portrait apply to both "
+                "text chat and voice chat. Switch anytime — it takes effect on the next message.",
                 visible=True,
             )
 
