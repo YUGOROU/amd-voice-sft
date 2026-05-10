@@ -69,12 +69,13 @@ def list_models():
 @app.post("/")
 def chat_completions(req: ChatRequest):
     msgs = [{"role": m.role, "content": m.content} for m in req.messages]
-    input_ids = tokenizer.apply_chat_template(
+    text = tokenizer.apply_chat_template(
         msgs,
-        tokenize=True,
+        tokenize=False,
         add_generation_prompt=True,
-        return_tensors="pt",
-    ).to(model.device)
+    )
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+    input_ids = inputs.input_ids
 
     max_new = req.max_tokens or args.max_new_tokens
     temp = req.temperature if req.temperature and req.temperature > 0 else None
