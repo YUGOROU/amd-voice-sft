@@ -53,6 +53,8 @@ class ChatRequest(BaseModel):
 
 
 @app.get("/health")
+@app.get("/")
+@app.get("/v1")
 def health():
     return {"status": "ok"}
 
@@ -63,6 +65,8 @@ def list_models():
 
 
 @app.post("/v1/chat/completions")
+@app.post("/chat/completions")
+@app.post("/")
 def chat_completions(req: ChatRequest):
     msgs = [{"role": m.role, "content": m.content} for m in req.messages]
     input_ids = tokenizer.apply_chat_template(
