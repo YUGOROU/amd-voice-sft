@@ -27,14 +27,16 @@ HF_TOKEN = os.environ.get("HF_TOKEN", "")
 print(f"Loading tokenizer: {args.model}")
 tokenizer = AutoTokenizer.from_pretrained(args.model, token=HF_TOKEN or None)
 
-print(f"Loading model: {args.model} (this may take a few minutes)...")
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
+print(f"Loading model: {args.model} on {device} (this may take a few minutes)...")
 model = AutoModelForCausalLM.from_pretrained(
     args.model,
     torch_dtype=torch.bfloat16,
-    device_map="auto",
+    device_map={"": device},
     token=HF_TOKEN or None,
 )
 model.eval()
+print(f"Model loaded on {device}.")
 print("Model loaded.")
 
 app = FastAPI(title="Lumi Transformers Server")
@@ -76,6 +78,7 @@ def chat_completions(req: ChatRequest):
     )
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
     input_ids = inputs.input_ids
+    attention_mask = inputs.attention_mask
 
     max_new = req.max_tokens or args.max_new_tokens
     temp = req.temperature if req.temperature and req.temperature > 0 else None
@@ -83,6 +86,7 @@ def chat_completions(req: ChatRequest):
     with torch.no_grad():
         output = model.generate(
             input_ids,
+            attention_mask=attention_mask,
             max_new_tokens=max_new,
             do_sample=(temp is not None and temp > 0),
             temperature=temp or 1.0,
