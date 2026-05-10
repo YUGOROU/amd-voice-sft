@@ -1,0 +1,15 @@
+{
+  "zero_optimization": {
+    "stage": 2,
+    "allgather_partitions": true,
+    "reduce_scatter": true,
+    "overlap_comm": true
+  },
+  "bf16": {
+    "enabled": true
+  },
+  "train_micro_batch_size_per_gpu": 2,
+  "gradient_accumulation_steps": 4,
+  "gradient_clipping": 1.0,
+  "steps_per_print": 5
+}
