@@ -1,0 +1,13 @@
+output_dir: ./lumi-qwen3-output
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 4   # effective batch = 16
+learning_rate: 2e-4
+num_train_epochs: 3
+fp16: true
+bf16: false                       # bf16 incomplete on ROCm — always use fp16
+logging_steps: 10
+save_steps: 200
+warmup_ratio: 0.03
+lr_scheduler_type: cosine
+dataloader_num_workers: 4
+max_seq_length: 2048

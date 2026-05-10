@@ -1,130 +1,118 @@
-# amd-voice-sft
+# Lumi — AI Voice Companion for Dementia & Alzheimer's Patients
 
-AI Voice Companion for elderly users with dementia and Alzheimer's — domain-specific SFT on AMD MI300X.
+> AMD Developer Hackathon 2026 · Fine-Tuning Track · lablab.ai · HuggingFace Spaces · AMD MI300X
 
-## Project Overview
+## What is Lumi?
 
-This repository contains the data pipeline and training scripts for **Lumi**, an AI voice companion designed for elderly users with memory difficulties. The model is fine-tuned on domain-specific conversational data generated with EQ-Matrix parameters (condition, severity, emotion, scenario).
+Lumi is a fine-tuned AI voice companion designed specifically for elderly patients with dementia and Alzheimer's disease. It combines emotional intelligence, persistent cross-session memory, and a responsive voice interaction pipeline to provide companionship, cognitive stimulation, and protection from scams.
+
+## What Makes Lumi Different
+
+| Feature | Existing Apps | Lumi |
+|---|---|---|
+| Domain fine-tuned model | Generic LLMs | QLoRA on 8,500+ dementia-care samples |
+| Persistent cross-session memory | No | ChromaDB, session facts |
+| Structured latency-hiding output | No | Opening line fires TTS instantly |
+| Scam deflection layer | No | Keyword + embedding classifier |
+| Family dashboard | No | Session summaries + instructions |
+| AMD GPU native | No | ROCm, vLLM, MI300X |
 
 ## Repository Structure
 
 ```
-amd-voice-sft/
-├── preprocess.ipynb      # Step 1: Raw dataset → ChatML format
-├── crof_pipeline.ipynb   # Step 2: ChatML → EQ-Matrix domain data (crof.ai)
-└── train_sft.py          # Step 3: SFT on AMD MI300X
+├── training/
+│   ├── train_sft.py           # QLoRA fine-tuning script (Qwen3-4B, ROCm)
+│   └── config/
+│       ├── lora_config.yaml
+│       └── training_args.yaml
+├── pipeline/
+│   ├── parser.py              # Structured output parser (avatar tag + think block)
+│   ├── memory.py              # ChromaDB session memory
+│   ├── stt.py                 # Whisper STT wrapper
+│   ├── tts.py                 # Piper/Coqui TTS wrapper
+│   └── scam_filter.py         # Scam detection classifier
+├── demo/
+│   ├── app.py                 # Gradio HF Space app (voice + avatar + memory + dashboard)
+│   ├── requirements.txt
+│   ├── README.md              # HF Space YAML config
+│   └── avatar/                # 5 PNG expression images (smile/nod/concerned/gentle/laugh)
+├── eval/
+│   ├── run_rouge.py           # ROUGE-L evaluation
+│   ├── latency_bench.py       # Time-to-first-audio benchmark (target <1.5s)
+│   ├── structured_output_compliance.py  # Format compliance check (target >95%)
+│   └── scam_eval.py           # Scam detection F1 (target >0.85)
+└── docs/
+    └── architecture.png       # System architecture diagram
 ```
 
-## Files
+## Data Pipeline
 
-### `preprocess.ipynb`
-**Purpose:** Converts 3 public HuggingFace datasets into ChatML format and uploads the result to HF Hub.
+The dataset (`YUGOROU/lumi-data`) was built in 3 stages:
 
-**Input datasets:**
-| Dataset | Split | Rows | Type |
-|---|---|---|---|
-| `fadodr/mental_health_therapy` | train | 8,580 | Single-turn |
-| `Estwld/empathetic_dialogues_llm` | train | 19,533 | Multi-turn |
-| `HuggingFaceTB/everyday-conversations-llama3.1-2k` | train_sft | 2,260 | Multi-turn |
+1. **Preprocess** — 3 public HF datasets converted to ChatML format
+2. **EQ-Matrix rewrite** (crof.ai) — Layer 1 domain rewrite using 150 patient profile combinations
+3. **Quality filter** — Layer 2 holistic scoring, 8,540 samples retained (69% keep rate)
 
-**Pipeline:**
-1. Load each dataset and convert to `{"messages": [...]}` ChatML format
-2. Inject a shared system prompt (Lumi persona) as the first message
-3. Apply quality filter (user ≥ 20 chars, assistant ≥ 50 chars)
-4. Shuffle and split 90:10 → `train.jsonl` / `val.jsonl`
-5. Upload to `YUGOROU/amd-voice-sft-data` on HF Hub
+Every assistant turn follows the structured output format:
+```
+[avatar_tag] Short opening line.
+<think>
+Internal reasoning — never sent to TTS or shown to user.
+</think>
+Full warm companion response.
+```
 
-**Output:** ~12,900 train + ~1,400 val samples at `YUGOROU/amd-voice-sft-data`
+## Training
 
-**Required Colab Secrets:** `HF_TOKEN`
-
----
-
-### `crof_pipeline.ipynb`
-**Purpose:** Rewrites ChatML samples into dementia-care domain data using the EQ-Matrix, then filters by quality score.
-
-**EQ-Matrix parameters (2×3×5×5 = 150 combinations):**
-- `condition`: dementia, alzheimer's
-- `severity`: mild, moderate, severe
-- `emotion`: calm, anxious, nostalgic, agitated, withdrawn
-- `scenario`: repetitive_questions, time_place_confusion, family_memories, daily_care, social_interaction
-
-**Pipeline:**
-- **Layer 1 — Rewrite** (Cell 5): Each sample is rewritten by `deepseek-v4-flash` via crof.ai with randomly sampled EQ-Matrix parameters. Every assistant turn follows a strict 3-part format:
-  ```
-  [ACTION_TAG] first utterance (≤8 words)
-  <think>
-  patient state reasoning
-  </think>
-  final response (≤25 words, voice-optimized)
-  ```
-  Runs with `ThreadPoolExecutor(max_workers=20)` for parallelism. Output pushed to `YUGOROU/amd-voice-sft-dataset/rewritten/`.
-
-- **Layer 2 — Filter** (Cell 6): Each rewritten sample is scored on 4 criteria (empathy, voice_suitability, domain_fit, format_compliance, each 0–10). Samples scoring ≥32/40 are kept. Uses `reasoning_effort="none"` and JSON schema enforcement for speed. Output pushed to `YUGOROU/amd-voice-sft-dataset/filtered/`.
-
-**Required Colab Secrets:** `CROF_API_KEY`, `HF_TOKEN`
-
----
-
-### `train_sft.py`
-**Purpose:** Supervised fine-tuning on AMD MI300X using Unsloth + TRL SFTTrainer.
-
-**Model options (set `BASE_MODEL` in the config block):**
-| Model | Strategy | VRAM | Notes |
-|---|---|---|---|
-| `unsloth/Llama-3.3-70B-Instruct` | LoRA | ~164GB | Best instruction-following quality |
-| `unsloth/Meta-Llama-3.1-8B-Instruct` | Full FT | ~96GB | Fast iteration |
-
-**Key config flags:**
-- `USE_LORA = True/False` — switch between LoRA and full fine-tuning
-- `BASE_MODEL` — set before running (currently `"TODO"`)
-
-**AMD-specific setup** (applied automatically at script start):
-- `HSA_OVERRIDE_GFX_VERSION=9.4.2` — tells ROCm to treat MI300X as gfx942
-- `load_in_4bit=False` — loads in bf16 to avoid bitsandbytes NaN bug on AMD
-- Flash Attention 2 is unavailable on ROCm; Unsloth automatically falls back to Xformers
-
-**Training config:**
-- Batch size: 1 + gradient accumulation 8 → effective batch 8
-- Learning rate: 2e-4, 1 epoch, bf16
-- Output pushed to `YUGOROU/lumi-lora` on HF Hub
-
-**Usage:**
 ```bash
 export HF_TOKEN=your_token
-python train_sft.py
+python training/train_sft.py
 ```
 
----
+Model: **Qwen3-4B-Instruct** (QLoRA r=16, 3 epochs, fp16, AMD MI300X)
+Dataset: `YUGOROU/lumi-data` config `filtered`
 
-## Data Flow
+ROCm notes:
+- `HSA_OVERRIDE_GFX_VERSION=9.4.2` is set automatically
+- Always `fp16=True`, NOT `bf16` — bf16 has incomplete ROCm support
 
-```
-HuggingFace (3 datasets)
-        │
-        ▼
-preprocess.ipynb
-        │  ChatML + quality filter
-        ▼
-YUGOROU/amd-voice-sft-data  (train.jsonl, val.jsonl)
-        │
-        ▼
-crof_pipeline.ipynb
-        │  Layer 1: EQ-Matrix rewrite
-        ▼
-YUGOROU/amd-voice-sft-dataset/rewritten/
-        │  Layer 2: quality filter (≥32/40)
-        ▼
-YUGOROU/amd-voice-sft-dataset/filtered/
-        │
-        ▼
-train_sft.py
-        │  SFT on AMD MI300X
-        ▼
-YUGOROU/lumi-lora
+## Serving
+
+```bash
+python -m vllm.entrypoints.openai.api_server \
+  --model ./lumi-qwen3-output \
+  --host 0.0.0.0 --port 8000 \
+  --dtype float16 --max-model-len 4096
 ```
 
-## Environment
+## Evaluation
 
-- **Preprocessing / Pipeline:** Google Colab (GPU not required)
-- **Training:** AMD Dev Cloud — MI300X (192GB VRAM), ROCm 6.0+
+```bash
+# Structured output compliance
+python eval/structured_output_compliance.py --model YUGOROU/lumi-qwen3-4b
+
+# ROUGE-L
+python eval/run_rouge.py --model YUGOROU/lumi-qwen3-4b --references eval/references.jsonl
+
+# Latency benchmark
+python eval/latency_bench.py --model YUGOROU/lumi-qwen3-4b
+
+# Scam detection F1
+python eval/scam_eval.py
+```
+
+## Evaluation Targets
+
+| Metric | Target | Tool |
+|---|---|---|
+| ROUGE-L | > 0.35 | HuggingFace evaluate |
+| Structured output compliance | > 95% | Custom regex |
+| Time-to-first-audio | < 1.5s | Python time |
+| Scam detection F1 | > 0.85 | sklearn |
+
+## Avatar Setup
+
+Generate 5 expression variants (smile, nod, concerned, gentle, laugh) using Midjourney or DALL-E 3:
+> "Soft watercolour illustration of a gentle elderly female companion, warm eyes, no text, transparent background, front-facing portrait"
+
+Save as `demo/avatar/avatar_{tag}.png` for each of the 5 tags.
