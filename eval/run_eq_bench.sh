@@ -24,7 +24,7 @@ TEST_API_URL="${TEST_API_URL:-http://localhost:8000}"
 TEST_MODEL="${TEST_MODEL:-YUGOROU/lumi-grpo}"
 MODEL_NAME="${MODEL_NAME:-lumi-grpo}"
 JUDGE_MODEL="${JUDGE_MODEL:-deepseek-v4-flash}"
-THREADS="${THREADS:-4}"
+THREADS="${THREADS:-1}"
 EQ_DIR="./eqbench3"
 
 LOG() { echo "[$(date +'%H:%M:%S')] $*"; }
@@ -50,7 +50,7 @@ TEST_API_KEY=EMPTY
 JUDGE_API_URL=https://crof.ai/v1
 JUDGE_API_KEY=${CROF_API_KEY}
 
-REQUEST_TIMEOUT=120
+REQUEST_TIMEOUT=300
 MAX_RETRIES=3
 LOG_VERBOSITY=INFO
 ENV
