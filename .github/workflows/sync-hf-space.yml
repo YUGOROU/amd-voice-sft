@@ -1,0 +1,39 @@
+name: Sync to HF Space
+
+on:
+  push:
+    branches: [main]
+    paths: ["space/**"]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install huggingface_hub
+        run: pip install --quiet huggingface_hub
+
+      - name: Push space/ to HF Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python - <<'EOF'
+          import os
+          from huggingface_hub import HfApi
+
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          api.upload_folder(
+              folder_path="space",
+              repo_id="lablab-ai-amd-developer-hackathon/lumi-voice-companion",
+              repo_type="space",
+              commit_message=f"Sync from GitHub @ ${{ github.sha }}",
+          )
+          print("Synced space/ → HF Space")
+          EOF
