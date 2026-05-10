@@ -31,7 +31,7 @@ jobs:
           api = HfApi(token=os.environ["HF_TOKEN"])
           api.upload_folder(
               folder_path="hf_upload",
-              repo_id="lablab-ai-amd-developer-hackathon/lumi-voice-companion",
+              repo_id="Debdeep30/lumi-ai-voice-companion",
               repo_type="space",
               commit_message=f"Sync from GitHub @ ${{ github.sha }}",
           )
