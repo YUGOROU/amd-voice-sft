@@ -12,7 +12,7 @@ This repository contains the data pipeline and training scripts for **Lumi**, an
 amd-voice-sft/
 ├── preprocess.ipynb      # Step 1: Raw dataset → ChatML format
 ├── crof_pipeline.ipynb   # Step 2: ChatML → EQ-Matrix domain data (crof.ai)
-└── train_sft.py          # Step 3: SFT on AMD MI300X  [feature/sft-training only]
+└── train_sft.py          # Step 3: SFT on AMD MI300X
 ```
 
 ## Files
@@ -66,6 +66,37 @@ amd-voice-sft/
 
 ---
 
+### `train_sft.py`
+**Purpose:** Supervised fine-tuning on AMD MI300X using Unsloth + TRL SFTTrainer.
+
+**Model options (set `BASE_MODEL` in the config block):**
+| Model | Strategy | VRAM | Notes |
+|---|---|---|---|
+| `unsloth/Llama-3.3-70B-Instruct` | LoRA | ~164GB | Best instruction-following quality |
+| `unsloth/Meta-Llama-3.1-8B-Instruct` | Full FT | ~96GB | Fast iteration |
+
+**Key config flags:**
+- `USE_LORA = True/False` — switch between LoRA and full fine-tuning
+- `BASE_MODEL` — set before running (currently `"TODO"`)
+
+**AMD-specific setup** (applied automatically at script start):
+- `HSA_OVERRIDE_GFX_VERSION=9.4.2` — tells ROCm to treat MI300X as gfx942
+- `load_in_4bit=False` — loads in bf16 to avoid bitsandbytes NaN bug on AMD
+- Flash Attention 2 is unavailable on ROCm; Unsloth automatically falls back to Xformers
+
+**Training config:**
+- Batch size: 1 + gradient accumulation 8 → effective batch 8
+- Learning rate: 2e-4, 1 epoch, bf16
+- Output pushed to `YUGOROU/lumi-lora` on HF Hub
+
+**Usage:**
+```bash
+export HF_TOKEN=your_token
+python train_sft.py
+```
+
+---
+
 ## Data Flow
 
 ```
@@ -87,7 +118,7 @@ YUGOROU/amd-voice-sft-dataset/rewritten/
 YUGOROU/amd-voice-sft-dataset/filtered/
         │
         ▼
-train_sft.py  [feature/sft-training]
+train_sft.py
         │  SFT on AMD MI300X
         ▼
 YUGOROU/lumi-lora
