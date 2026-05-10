@@ -20,7 +20,7 @@ set -euo pipefail
 
 : "${CROF_API_KEY:?Set CROF_API_KEY (used as judge model via crof.ai)}"
 
-TEST_API_URL="${TEST_API_URL:-http://localhost:8000/v1}"
+TEST_API_URL="${TEST_API_URL:-http://localhost:8000}"
 TEST_MODEL="${TEST_MODEL:-YUGOROU/lumi-grpo}"
 MODEL_NAME="${MODEL_NAME:-lumi-grpo}"
 JUDGE_MODEL="${JUDGE_MODEL:-deepseek-v4-flash}"
