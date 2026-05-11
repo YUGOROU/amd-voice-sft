@@ -56,14 +56,14 @@ if ! command -v uv &>/dev/null; then
 fi
 LOG "Installing Python dependencies..."
 # Install ROCm torch (works on both DigitalOcean AMD and Dev Cloud)
-pip3 install --break-system-packages -q torch \
+pip3 install --break-system-packages --ignore-installed -q torch \
     --index-url https://download.pytorch.org/whl/rocm6.3
-pip3 install --break-system-packages -q \
+pip3 install --break-system-packages --ignore-installed -q \
     "numpy>=1.26" "fastapi>=0.115" "uvicorn[standard]" httpx python-multipart \
     soundfile "transformers>=5.0" accelerate
 # Install chatterbox-tts without pinned deps (torch/numpy version conflicts)
 pip3 install --break-system-packages --no-deps -q chatterbox-tts
-pip3 install --break-system-packages -q \
+pip3 install --break-system-packages --ignore-installed -q \
     conformer diffusers librosa omegaconf torchaudio s3tokenizer resemble-perth
 
 # ── 2. Write TTS microservice ──────────────────────────────
