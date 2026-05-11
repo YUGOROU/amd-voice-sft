@@ -48,22 +48,26 @@ else
     LOG "WARN: ufw not found, skipping firewall setup."
 fi
 
-# ── 1. Python environment ──────────────────────────────────
-if ! command -v uv &>/dev/null; then
-    LOG "Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
+# ── 1. Python environment (venv avoids Debian system-package conflicts) ───
+VENV="$WORKSPACE/venv"
+if [ ! -d "$VENV" ]; then
+    LOG "Creating virtual environment at $VENV..."
+    python3 -m venv "$VENV"
 fi
+PIP="$VENV/bin/pip"
+PYTHON="$VENV/bin/python"
+export PATH="$VENV/bin:$PATH"
+
 LOG "Installing Python dependencies..."
-# Install ROCm torch (works on both DigitalOcean AMD and Dev Cloud)
-pip3 install --break-system-packages --ignore-installed -q torch \
+# Install ROCm torch
+"$PIP" install -q torch \
     --index-url https://download.pytorch.org/whl/rocm6.3
-pip3 install --break-system-packages --ignore-installed -q \
+"$PIP" install -q \
     "numpy>=1.26" "fastapi>=0.115" "uvicorn[standard]" httpx python-multipart \
     soundfile "transformers>=5.0" accelerate
 # Install chatterbox-tts without pinned deps (torch/numpy version conflicts)
-pip3 install --break-system-packages --no-deps -q chatterbox-tts
-pip3 install --break-system-packages --ignore-installed -q \
+"$PIP" install -q --no-deps chatterbox-tts
+"$PIP" install -q \
     conformer diffusers librosa omegaconf torchaudio s3tokenizer resemble-perth
 
 # ── 2. Write TTS microservice ──────────────────────────────
@@ -292,7 +296,7 @@ PYEOF
 
 # ── 4. Start background services ──────────────────────────
 LOG "Starting LLM server (port $LLM_PORT) → $WORKSPACE/llm.log"
-HF_TOKEN="$HF_TOKEN" python3 "$WORKSPACE/llm_server.py" \
+HF_TOKEN="$HF_TOKEN" "$PYTHON" "$WORKSPACE/llm_server.py" \
     --model "$LLM_MODEL" \
     --port "$LLM_PORT" \
     --host 127.0.0.1 \
@@ -304,7 +308,7 @@ STT_PID=0
 echo "STT disabled" > "$WORKSPACE/stt.log"
 
 LOG "Starting TTS server (port $TTS_PORT) → $WORKSPACE/tts.log"
-uvicorn tts_server:app --host 127.0.0.1 --port "$TTS_PORT" \
+"$VENV/bin/uvicorn" tts_server:app --host 127.0.0.1 --port "$TTS_PORT" \
     > "$WORKSPACE/tts.log" 2>&1 &
 TTS_PID=$!
 
@@ -344,4 +348,4 @@ LOG "  GET  http://0.0.0.0:$API_PORT/health"
 LOG "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # ── 7. FastAPI gateway (foreground – keeps script alive) ──
-uvicorn gateway:app --host 0.0.0.0 --port "$API_PORT" --workers 1
+"$VENV/bin/uvicorn" gateway:app --host 0.0.0.0 --port "$API_PORT" --workers 1
