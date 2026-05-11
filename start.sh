@@ -48,26 +48,31 @@ else
     LOG "WARN: ufw not found, skipping firewall setup."
 fi
 
-# ── 1. Python environment (venv avoids Debian system-package conflicts) ───
-VENV="$WORKSPACE/venv"
-if [ ! -d "$VENV" ]; then
-    LOG "Creating virtual environment at $VENV..."
-    python3 -m venv "$VENV"
+# ── 1. Python environment (uv avoids Debian system-package conflicts) ────
+if ! command -v uv &>/dev/null; then
+    LOG "Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
 fi
-PIP="$VENV/bin/pip"
+
+VENV="$WORKSPACE/venv"
+if [ ! -f "$VENV/bin/python" ]; then
+    LOG "Creating virtual environment at $VENV..."
+    uv venv "$VENV"
+fi
 PYTHON="$VENV/bin/python"
 export PATH="$VENV/bin:$PATH"
 
 LOG "Installing Python dependencies..."
 # Install ROCm torch
-"$PIP" install -q torch \
+uv pip install --python "$PYTHON" -q torch \
     --index-url https://download.pytorch.org/whl/rocm6.3
-"$PIP" install -q \
+uv pip install --python "$PYTHON" -q \
     "numpy>=1.26" "fastapi>=0.115" "uvicorn[standard]" httpx python-multipart \
     soundfile "transformers>=5.0" accelerate
 # Install chatterbox-tts without pinned deps (torch/numpy version conflicts)
-"$PIP" install -q --no-deps chatterbox-tts
-"$PIP" install -q \
+uv pip install --python "$PYTHON" -q --no-deps chatterbox-tts
+uv pip install --python "$PYTHON" -q \
     conformer diffusers librosa omegaconf torchaudio s3tokenizer resemble-perth
 
 # ── 2. Write TTS microservice ──────────────────────────────
